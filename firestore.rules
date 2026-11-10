@@ -1,0 +1,9 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /starter_checks/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
