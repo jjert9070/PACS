@@ -1,0 +1,71 @@
+
+name: PACS Streamlit CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. GitHub 저장소 코드 가져오기
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. uv 설치
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      # 3. Python 3.12 설치
+      - name: Install Python
+        run: uv python install 3.12
+
+      # 4. 의존성 설치
+      - name: Install dependencies
+        run: uv sync --locked --python 3.12
+
+      # 5. Python 버전 확인
+      - name: Check Python
+        run: uv run --no-sync python --version
+
+      # 6. PACS 자동 테스트 실행
+      - name: Run PACS tests
+        run: uv run --no-sync python -m unittest discover -v
+
+      # 7. Streamlit 서버 정상 실행 검사
+      - name: Check Streamlit server
+        shell: bash
+        run: |
+          uv run --no-sync streamlit run app.py \
+            --server.headless=true \
+            --server.address=127.0.0.1 \
+            --server.port=8501 >streamlit.log 2>&1 &
+
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8501/_stcore/health; then
+              echo "Streamlit server OK"
+              exit 0
+            fi
+
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              break
+            fi
+
+            sleep 1
+          done
+
+          cat streamlit.log
+          exit 1
