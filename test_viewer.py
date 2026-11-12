@@ -1,6 +1,8 @@
 from io import BytesIO
+import struct
 import unittest
 from unittest.mock import patch
+import zlib
 
 from PIL import Image
 from streamlit.testing.v1 import AppTest
@@ -14,7 +16,66 @@ def encoded_image(file_format="PNG", size=(24, 16), mode="RGB"):
     return stream.getvalue()
 
 
+def color_png(bit_depth, color_type):
+    """Encode actual RGB/RGBA samples with valid PNG chunks and CRCs.
+
+    Pillow cannot encode 16-bit color PNG; changing only an 8-bit PNG header
+    would instead produce a corrupt file and would not reproduce this bug.
+    """
+    channels = {2: 3, 6: 4}[color_type]
+
+    def chunk(kind, payload):
+        return (struct.pack(">I", len(payload)) + kind + payload
+                + struct.pack(">I", zlib.crc32(kind + payload)))
+
+    header = struct.pack(">IIBBBBB", 1, 1, bit_depth, color_type, 0, 0, 0)
+    sample = b"\x12\x34" if bit_depth == 16 else b"\x12"
+    pixels = b"\x00" + sample * channels  # One scanline, filter type 0.
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
+            + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
+
+
 class ImageInputTests(unittest.TestCase):
+    def test_rejects_real_16_bit_color_png_despite_pillow_mode(self):
+        for color_type, mode in [(2, "RGB"), (6, "RGBA")]:
+            with self.subTest(mode=mode):
+                data = color_png(16, color_type)
+                self.assertEqual(data[24], 16)
+                with Image.open(BytesIO(data)) as opened:
+                    self.assertEqual(opened.mode, mode)
+                    opened.load()
+                    # Confirms Pillow silently loses the low byte before validation.
+                    self.assertEqual(opened.getpixel((0, 0)), (0x12,) * len(mode))
+                with self.assertRaisesRegex(ViewerInputError, "16비트"):
+                    load_image("color16.png", data)
+
+    def test_accepts_8_bit_rgb_and_rgba_png(self):
+        for color_type in (2, 6):
+            with self.subTest(color_type=color_type):
+                source = load_image("color8.png", color_png(8, color_type))
+                self.assertEqual(source.image.getpixel((0, 0)), (0x12,) * 3)
+
+    def test_high_bit_png_is_rejected_before_pillow_opens_it(self):
+        with patch("viewer.Image.open") as open_image:
+            with self.assertRaisesRegex(ViewerInputError, "16비트"):
+                load_image("color16.png", color_png(16, 2))
+        open_image.assert_not_called()
+
+    def test_rejects_truncated_or_invalid_ihdr(self):
+        data = color_png(8, 2)
+        invalid_headers = (data[:24], data[:32],
+                           data[:8] + b"\x00\x00\x00\x0c" + data[12:],
+                           data[:12] + b"IDAT" + data[16:])
+        for invalid in invalid_headers:
+            with self.subTest(header=invalid[:16]), self.assertRaises(ViewerInputError):
+                load_image("broken.png", invalid)
+
+    def test_existing_low_bit_png_modes_still_open(self):
+        for mode in ("1", "L", "P"):
+            with self.subTest(mode=mode):
+                source = load_image("lowbit.png", encoded_image(mode=mode))
+                self.assertEqual(source.image.size, (24, 16))
+
     def test_png_and_jpeg_decode_and_source_identity(self):
         for name, fmt in [("a.PNG", "PNG"), ("a.jpeg", "JPEG")]:
             data = encoded_image(fmt)

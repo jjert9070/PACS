@@ -37,6 +37,15 @@ def load_image(name: str, data: bytes) -> ViewerSource:
         raise ViewerInputError("PNG 또는 JPEG 파일만 열 수 있습니다. DICOM은 아직 지원하지 않습니다.")
     if not data or len(data) > MAX_FILE_BYTES:
         raise ViewerInputError("비어 있는 파일이거나 파일 크기가 20 MB를 초과했습니다.")
+    if expected == "PNG":
+        # PNG signature + first chunk length/type, followed by 13 IHDR bytes
+        # and its CRC. Bit depth follows the 4-byte width and 4-byte height.
+        # Read before Pillow, which exposes 16-bit color PNG as RGB/RGBA.
+        if len(data) < 33 or data[:16] != b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR":
+            raise ViewerInputError("PNG 헤더가 올바르지 않거나 파일이 손상되었습니다.")
+        bit_depth = data[24]
+        if bit_depth > 8:
+            raise ViewerInputError(f"{bit_depth}비트 PNG는 지원하지 않습니다. 8비트 이하 PNG를 선택하세요.")
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
