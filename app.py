@@ -3,6 +3,7 @@ import os
 import streamlit as st
 
 from firebase_client import FirebaseRequestError, check_firestore, sign_in
+from viewer import clear_viewer, render_viewer
 
 
 def show_login(api_key: str) -> None:
@@ -44,6 +45,7 @@ def main() -> None:
     session = st.session_state.get("pacs_session")
     if session and session.is_expired():
         st.session_state.pop("pacs_session", None)
+        clear_viewer()
         st.warning("로그인 시간이 만료됐습니다. 다시 로그인하세요.")
         session = None
     if session is None:
@@ -53,12 +55,10 @@ def main() -> None:
     st.text(f"로그인 계정  {session.email}")
     if st.button("로그아웃"):
         st.session_state.pop("pacs_session", None)
+        clear_viewer()
         st.rerun()
 
-    st.subheader("PACS 뷰어")
-    original, processed = st.columns(2)
-    original.info("원본 영상 영역")
-    processed.info("처리 결과 영역")
+    render_viewer()
 
     if st.button("Firestore 연결 확인"):
         try:
@@ -66,6 +66,7 @@ def main() -> None:
         except FirebaseRequestError as error:
             if error.status == 401:
                 st.session_state.pop("pacs_session", None)
+                clear_viewer()
                 st.rerun()
             elif error.status == 403:
                 st.error("Firestore 접근이 거절됐습니다. 프로젝트와 읽기 규칙을 확인하세요.")
