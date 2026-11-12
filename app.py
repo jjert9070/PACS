@@ -4,6 +4,15 @@ import streamlit as st
 
 from firebase_client import FirebaseRequestError, check_firestore, sign_in
 from viewer import clear_viewer, render_viewer
+from case_ui import clear_cases, render_cases
+from local_storage_ui import render_local_storage
+from case_records_ui import render_case_records
+
+
+def clear_session() -> None:
+    st.session_state.pop("pacs_session", None)
+    clear_viewer()
+    clear_cases()
 
 
 def show_login(api_key: str) -> None:
@@ -44,8 +53,7 @@ def main() -> None:
 
     session = st.session_state.get("pacs_session")
     if session and session.is_expired():
-        st.session_state.pop("pacs_session", None)
-        clear_viewer()
+        clear_session()
         st.warning("로그인 시간이 만료됐습니다. 다시 로그인하세요.")
         session = None
     if session is None:
@@ -54,19 +62,42 @@ def main() -> None:
 
     st.text(f"로그인 계정  {session.email}")
     if st.button("로그아웃"):
-        st.session_state.pop("pacs_session", None)
-        clear_viewer()
+        clear_session()
         st.rerun()
 
-    render_viewer()
+    if st.session_state.get("case_owner") != session.uid:
+        clear_cases()
+        clear_viewer()
+        st.session_state["case_owner"] = session.uid
+    stored_source = None
+    if st.session_state.get("viewer_stored_owner") == session.uid:
+        stored_source = st.session_state.get("viewer_stored_source")
+    source = render_viewer(stored_source=stored_source,
+                           stored_result=st.session_state.get("viewer_stored_result") if stored_source else None)
+
+    with st.expander("케이스 등록과 다시 열기, 변경 이력"):
+        try:
+            render_case_records(project_id, session, source)
+        except FirebaseRequestError:
+            clear_session()
+            st.rerun()
+
+    with st.expander("개발용 로컬 원본 저장과 재열기"):
+        render_local_storage(session, source)
+
+    with st.expander("이전 단계: 제목과 메모만 저장"):
+        try:
+            render_cases(project_id, session)
+        except FirebaseRequestError:
+            clear_session()
+            st.rerun()
 
     if st.button("Firestore 연결 확인"):
         try:
             check_firestore(project_id, session)
         except FirebaseRequestError as error:
             if error.status == 401:
-                st.session_state.pop("pacs_session", None)
-                clear_viewer()
+                clear_session()
                 st.rerun()
             elif error.status == 403:
                 st.error("Firestore 접근이 거절됐습니다. 프로젝트와 읽기 규칙을 확인하세요.")
