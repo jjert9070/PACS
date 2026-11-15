@@ -31,10 +31,9 @@ def png_bytes(image):
 
 
 def clean_image():
-    image = Image.new("RGB", (256, 256), (80, 80, 80))
-    image.paste((176, 176, 176), (128, 0, 256, 256))
-    image.paste((224, 224, 224), (60, 40, 62, 216))
-    return image
+    path = Path(__file__).resolve().with_name("Lenna.png")
+    with Image.open(path) as image:
+        return image.convert("RGB").resize((256, 256), Image.Resampling.LANCZOS)
 
 
 def noisy_image(clean, sigma):
