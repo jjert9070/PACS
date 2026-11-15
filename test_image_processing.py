@@ -1,5 +1,6 @@
 import unittest
 
+import numpy as np
 from PIL import Image
 
 from image_processing import gaussian_blur
@@ -45,13 +46,33 @@ class GaussianTests(unittest.TestCase):
         self.assertTrue(40 < result.getpixel((19, 10))[0] < result.getpixel((20, 10))[0] < 200)
         self.assertEqual(result.tobytes(), gaussian_blur(source, 2).tobytes())
 
+    def test_known_kernel_and_reflect101_border(self):
+        # At sigma=1, the normalized 7-tap kernel has center weight ~0.39905.
+        # Reflect101 maps -1 to +1: a bright corner contributes once, not twice.
+        source = Image.new("RGB", (9, 9))
+        source.putpixel((0, 0), (255, 0, 0))
+        result = gaussian_blur(source, 1)
+        self.assertAlmostEqual(result.getpixel((0, 0))[0], 41, delta=1)
+        self.assertAlmostEqual(result.getpixel((1, 0))[0], 25, delta=1)
+        self.assertEqual(result.getpixel((0, 0))[1:], (0, 0))
+
+    def test_numpy_scalar_and_result_independence(self):
+        source = Image.new("RGB", (7, 7), (12, 93, 211))
+        for radius in (1, 1.5, np.int32(1), np.int64(2), np.float32(1.5), np.float64(1.5)):
+            with self.subTest(radius=radius, scalar_type=type(radius)):
+                result = gaussian_blur(source, radius)
+                self.assertEqual(result.mode, "RGB")
+                self.assertEqual(result.size, source.size)
+                result.putpixel((0, 0), (0, 0, 0))
+                self.assertEqual(source.getpixel((0, 0)), (12, 93, 211))
+
     def test_invalid_parameters_are_rejected(self):
         source = Image.new("RGB", (3, 3))
-        for radius in (-1, 20.01, float("nan"), float("inf"), -float("inf"), 10**400):
+        for radius in (-1, 20.01, np.nan, np.inf, -np.inf, np.float32(np.nan), 10**400):
             with self.subTest(radius=radius):
                 with self.assertRaises(ValueError):
                     gaussian_blur(source, radius)
-        for radius in (True, False, "2", None, [2], 1+2j):
+        for radius in (True, False, np.bool_(True), np.bool_(False), "2", None, [2], np.array(2), np.array([2]), 1+2j):
             with self.subTest(radius=radius):
                 with self.assertRaises(TypeError):
                     gaussian_blur(source, radius)
