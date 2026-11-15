@@ -58,17 +58,21 @@ class GaussianTests(unittest.TestCase):
 
     def test_numpy_scalar_and_result_independence(self):
         source = Image.new("RGB", (7, 7), (12, 93, 211))
-        result = gaussian_blur(source, np.float64(1.5))
-        result.putpixel((0, 0), (0, 0, 0))
-        self.assertEqual(source.getpixel((0, 0)), (12, 93, 211))
+        for radius in (1, 1.5, np.int32(1), np.int64(2), np.float32(1.5), np.float64(1.5)):
+            with self.subTest(radius=radius, scalar_type=type(radius)):
+                result = gaussian_blur(source, radius)
+                self.assertEqual(result.mode, "RGB")
+                self.assertEqual(result.size, source.size)
+                result.putpixel((0, 0), (0, 0, 0))
+                self.assertEqual(source.getpixel((0, 0)), (12, 93, 211))
 
     def test_invalid_parameters_are_rejected(self):
         source = Image.new("RGB", (3, 3))
-        for radius in (-1, 20.01, float("nan"), float("inf"), -float("inf"), 10**400):
+        for radius in (-1, 20.01, np.nan, np.inf, -np.inf, np.float32(np.nan), 10**400):
             with self.subTest(radius=radius):
                 with self.assertRaises(ValueError):
                     gaussian_blur(source, radius)
-        for radius in (True, False, "2", None, [2], 1+2j):
+        for radius in (True, False, np.bool_(True), np.bool_(False), "2", None, [2], np.array(2), np.array([2]), 1+2j):
             with self.subTest(radius=radius):
                 with self.assertRaises(TypeError):
                     gaussian_blur(source, radius)

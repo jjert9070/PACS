@@ -4,7 +4,6 @@ import argparse
 import csv
 import hashlib
 import json
-import math
 import platform
 import sys
 from pathlib import Path
@@ -158,7 +157,9 @@ def save_experiment_info(output, sources, input_path, color_mode, synthetic):
     info["noise_channels"] = "independent RGB" if color_mode == "color" else "one L sample replicated to RGB"
     info["rounding_clipping"] = "float64 -> np.rint (ties to even) -> clip 0..255 -> uint8; PNG experiment only"
     info["radius_px"] = RADII
-    info["kernel_sizes"] = [1 if radius == 0 else 2 * math.ceil(3 * radius) + 1 for radius in RADII]
+    radius_values = np.asarray(RADII, dtype=np.float64)
+    kernel_radii = np.ceil(3 * radius_values).astype(np.int64)
+    info["kernel_sizes"] = (2 * kernel_radii + 1).tolist()
     info["sigma_xy"] = "radius in original pixels; radius=0 independent copy"
     info["border"] = "BORDER_REFLECT_101"
     info["size"] = IMAGE_SIZE

@@ -27,6 +27,11 @@
 
 기본값 1 px와 상한 20 px는 구현 제안이며 과제 지정 수치가 아니다.
 NumPy로 원본의 RGB `uint8` 배열을 복사하고 OpenCV로 채널별 처리 후 PIL로 반환한다.
+유한값 검사는 `np.isfinite`, 커널 크기 올림은 `np.ceil`로 통일했다.
+함수와 실험에서 `math`, `numbers.Real`을 제거했다. 난수는 이미 NumPy PCG64를 사용하며
+Python `random`은 사용하지 않는다. radius는 Python int/float 및 NumPy 정수·실수 스칼라를
+받고 bool/np.bool_, 배열, 복소수와 Fraction 등 그 외 형식은 거절한다.
+커널·σ·경계 처리와 결과 픽셀 계산은 변하지 않아 알고리즘 버전은 2.0.0을 유지한다.
 블러 자체는 채널 순서에 의존하지 않아 RGB→BGR 전환이 필요 없다.
 파일 코덱을 쓰는 실험의 읽기·저장 시에만 BGR↔RGB 변환을 한다.
 

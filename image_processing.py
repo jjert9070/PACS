@@ -1,8 +1,5 @@
 """Original-size RGB processing functions; display transforms belong to the viewer."""
 
-import math
-from numbers import Real
-
 import cv2
 import numpy as np
 from PIL import Image
@@ -23,17 +20,18 @@ def gaussian_blur(image: Image.Image, radius: float = 1.0) -> Image.Image:
         raise TypeError("image must be a PIL Image")
     if image.mode != "RGB" or min(image.size) < 1:
         raise ValueError("image must be a nonempty RGB image from load_image")
-    if isinstance(radius, bool) or not isinstance(radius, Real):
+    scalar_types = (int, float, np.integer, np.floating)
+    if isinstance(radius, (bool, np.bool_)) or not isinstance(radius, scalar_types):
         raise TypeError("radius must be a real number, not bool or text")
     try:
         sigma = float(radius)
     except (OverflowError, ValueError) as exc:
         raise ValueError("radius must be finite and between 0 and 20 pixels") from exc
-    if not math.isfinite(sigma) or not 0 <= sigma <= MAX_GAUSSIAN_RADIUS:
+    if not np.isfinite(sigma) or not 0 <= sigma <= MAX_GAUSSIAN_RADIUS:
         raise ValueError("radius must be finite and between 0 and 20 pixels")
     if sigma == 0:
         return image.copy()
-    kernel_radius = math.ceil(3 * sigma)
+    kernel_radius = int(np.ceil(3 * sigma))
     kernel_size = 2 * kernel_radius + 1
 
     # GaussianBlur processes channels independently: RGB needs no BGR swap.
