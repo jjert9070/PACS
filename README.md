@@ -1,10 +1,12 @@
 # 교육용 웹 PACS 스타터
 
-팀원 세 명이 같은 환경에서 앱을 띄우고 PACS 뷰어를 개발하기 위한 저장소다. 지금은 Firebase 이메일 로그인과 Firestore 연결을 확인할 수 있다. 로그인하면 원본 영상과 처리 결과를 나란히 보여 줄 자리가 나온다.
+팀원 세 명이 같은 환경에서 교육용 PACS 뷰어를 개발하기 위한 저장소다. 현재 Firebase 이메일 로그인, PNG/JPEG 열기와 확대, 원본과 연결된 케이스의 저장과 재열기 기능을 개발하고 있다. 가우시안 처리는 독립 함수와 비교 실험으로 제공하며, 앱의 처리 버튼과 케이스 저장에 연결하는 작업은 아직 남아 있다.
+
+먼저 앱을 실행하려면 아래 1~3번을 따른다. 가우시안 결과만 확인하려면 [담당 B 실행 방법](#담당-b-가우시안-실험-실행하기)으로 이동한다. 실험에는 Firebase 로그인이나 `.env`가 필요 없다.
 
 ## 1. 내 PC에서 앱 열기
 
-Linux의 Bash를 기준으로 안내한다. 먼저 `uv --version`으로 `uv`가 설치되어 있는지 확인한다. 설치가 필요하면 공식 안내를 따른다. [uv 설치 안내](https://docs.astral.sh/uv/getting-started/installation/)
+Bash와 Windows PowerShell에서 사용할 수 있는 명령을 안내한다. 먼저 `uv --version`으로 `uv`가 설치되어 있는지 확인한다. 설치가 필요하면 공식 안내를 따른다. [uv 설치 안내](https://docs.astral.sh/uv/getting-started/installation/)
 
 1. PACS 폴더에서 개발 환경 준비. `uv sync --locked`
 2. 앱 실행. `uv run --locked streamlit run app.py`
@@ -23,7 +25,20 @@ Linux의 Bash를 기준으로 안내한다. 먼저 `uv --version`으로 `uv`가 
 
 ## 3. 환경 변수 설정하고 다시 실행하기
 
-**두 값을 설정한 터미널에서 앱을 실행한다.** 앱이 이미 켜져 있으면 그 터미널에서 `Ctrl+C`를 눌러 먼저 종료한다.
+### .env를 사용하는 방법
+
+매번 환경 변수를 입력하지 않으려면 PACS 최상단 폴더에 `.env` 파일을 만들고 다음 두 항목을 각각 한 줄에 입력한다. 예시 문구는 본인의 실제 값으로 바꾼다.
+
+- `PACS_FIREBASE_API_KEY="여기에_웹_API_키"`
+- `PACS_FIREBASE_PROJECT_ID="여기에_프로젝트_ID"`
+
+실행 명령은 `uv run --locked --env-file .env streamlit run app.py`다. `uv`가 `.env`를 읽어 실행하는 방식이므로 `--env-file .env`를 포함한다. 앱을 이미 실행 중이라면 `Ctrl+C`로 종료한 뒤 다시 실행한다. `.env`를 GitHub에 올리지 않는다.
+
+Windows의 Git Bash에서 `uv: command not found`가 나오고 기존 설치 경로가 아래와 같다면 `"/c/Users/admin/AppData/Roaming/Python/Scripts/uv.exe" run --locked --env-file .env streamlit run app.py`로 실행할 수 있다. 이 경로의 `admin`은 PC 사용자 이름이므로 다른 팀원은 본인의 설치 경로를 확인한다.
+
+### 터미널에서 직접 설정하는 방법
+
+**두 값을 설정한 터미널에서 앱을 실행한다.** 아래 방식은 `.env` 대신 현재 터미널에 값을 설정할 때 사용한다.
 
 Firebase 콘솔의 **프로젝트 설정 → 일반 → 내 앱**에서 웹 앱을 선택하고 **구성(Config)**을 연다. 웹 앱이 없으면 **프로젝트 개요**의 웹 아이콘으로 등록한다. 구성에 나온 `apiKey`와 `projectId`를 복사하고, 아래 따옴표 안의 예시 문구를 실제 값으로 바꿔 입력한다. [Firebase 콘솔에서 웹 앱 구성 찾기](https://firebase.google.com/docs/projects/api-keys), [웹 앱 등록하기](https://firebase.google.com/docs/web/setup)
 
@@ -65,30 +80,30 @@ Firebase 콘솔의 **프로젝트 설정 → 일반 → 내 앱**에서 웹 앱�
 ## 뷰어 스타터 (feature/viewer-starter)
 
 로그인 뒤 왼쪽에서 PNG/JPEG 파일 또는 합성 예시를 선택한다. 중앙에서 원본을
-확대하고 가로·세로 위치를 조절하며, 오른쪽에서 파일 형식·크기·영상 ID와 표시
+확대하고 가로와 세로 위치를 조절하며, 오른쪽에서 파일 형식, 크기, 영상 ID와 표시
 상태를 확인한다. 확대는 원본의 일부를 잘라 같은 화면 크기로 보여주는 방식이다.
 보기 초기화 또는 다른 파일 선택 시 전체 영상으로 돌아온다. 원본 파일은 수정하지 않는다.
 
 - 지원: 단일 프레임 PNG/JPEG, 20 MB 이하, 2,000만 픽셀 이하, 8비트 표시 영상.
-- 미지원: DICOM/CT 시리즈, 16비트 정량 분석, MPR·3D, ROI와 실제 단위 측정,
-  영구 저장·케이스 목록·AI. CT 예시를 사용한다면 PNG/JPEG로 내보낸 2D 단면이다.
-- 확장자뿐 아니라 실제 형식과 디코딩을 검사한다. 손상 파일·다른 형식·제한 초과는
+- 미지원: DICOM/CT 시리즈, 16비트 정량 분석, MPR, 3D, ROI와 실제 단위 측정,
+  운영용 영상 저장소와 AI. 케이스 목록과 개발용 원본 저장은 아래 C 영역에서 제공한다.
+  CT 예시를 사용한다면 PNG/JPEG로 내보낸 2D 단면이다.
+- 확장자뿐 아니라 실제 형식과 디코딩을 검사한다. 손상 파일, 다른 형식, 제한 초과는
   이유를 표시한다. PNG는 디코딩 전에 IHDR 헤더의 채널당 비트 깊이를 확인하여
-  16비트 회색조·RGB·RGBA 영상을 거절한다. Pillow가 표시하는 RGB/RGBA 모드만으로
+  16비트 회색조, RGB, RGBA 영상을 거절한다. Pillow가 표시하는 RGB/RGBA 모드만으로
   비트 깊이를 판단하지 않는다. JPEG 방향 정보는 화면에 반영한다.
 - 시안의 영상 선택/중앙 뷰어/정보 패널 배치를 참고했다. 처리 결과가 없을 때
-  원본을 처리 결과라고 표시하지 않는다. PACS 연결·저장 완료를 가정하지 않는다.
+  원본을 처리 결과라고 표시하지 않는다. PACS 연결, 저장 완료를 가정하지 않는다.
 - 합성 예시는 코드에서 생성한 명암/사각형 패턴으로, 환자 자료나 외부 영상이 아니다.
-- 로그아웃·세션 만료 시 뷰어 상태를 지운다. 새로고침 시 파일이 유지되는 것을
+- 로그아웃, 세션 만료 시 뷰어 상태를 지운다. 새로고침 시 파일이 유지되는 것을
   보장하지 않으며, Firebase에는 이 단계의 영상이나 처리 결과를 저장하지 않는다.
 
 ### 영상처리 담당 연결 지점
 
 `viewer.py`의 `render_viewer(processor=None)`에 함수를 전달한다. 함수는 현재 원본의
-**RGB PIL 이미지 복사본**을 받고, 같은 크기의 PIL 이미지를 반환한다. 가로·세로 위치와
+**RGB PIL 이미지 복사본**을 받고, 같은 크기의 PIL 이미지를 반환한다. 가로와 세로 위치와
 확대는 두 영상에 동일하게 적용한다. 결과 크기가 다르거나 처리에 실패하면 오류를
-표시하고 원본을 유지한다. 콜백은 화면 재실행마다 호출하므로 비싼 처리는 원본 ID와
-설정값을 키로 캐싱하는 방법을 후속 작업에서 합의한다.
+표시하고 원본을 유지한다. 콜백의 호출 시점과 처리 이력 저장 시점은 통합 단계에서 합의한다.
 
 `render_viewer` 반환값은 `ViewerSource | None`이다. 영상 선택 시 `source_id`(파일 내용의
 SHA-256), `name`, `file_format`, `byte_count`, `image`를 제공한다. 처리 이력과 ROI 연결은
@@ -98,14 +113,14 @@ SHA-256), `name`, `file_format`, `byte_count`, `image`를 제공한다. 처리 �
 ### 첫 확인 순서
 
 1. 로그인 → 합성 예시 선택 → 중앙 원본과 오른쪽 정보 확인.
-2. 확대 2배 → 가로·세로 위치 변경 → 보기 초기화.
+2. 확대 2배 → 가로와 세로 위치 변경 → 보기 초기화.
 3. 정상 PNG와 JPEG 선택 → 파일 이름과 픽셀 크기 확인.
 4. 손상 PNG 선택 → 이전 영상 대신 오류 안내 확인.
 5. 새 영상 선택 → 확대와 위치가 기본값으로 돌아오는지 확인.
 6. 로그아웃 → 로그인 화면으로 돌아오는지 확인.
 
 자동 확인: `uv run --locked python -m unittest discover -v`.
-파일 검증·방향·확대 좌표, 화면 초기화, 처리 함수의 원본 보존과 결과 크기,
+파일 검증, 방향, 확대 좌표, 화면 초기화, 처리 함수의 원본 보존과 결과 크기,
 로그아웃을 Firebase 네트워크 없이 검사한다. 실제 계정 로그인과 파일 선택은 별도로 확인한다.
 
 ### 브랜치 작업과 리뷰
@@ -231,15 +246,62 @@ test_case_records.py는 저장과 재열기, 동일 요청 재시도, 수정 충
 운영 저장소와 두 역할의 정책이 확정되기 전까지 C 전체 완료나 운영 배포 완료로
 판정하지 않는다. 실제 환자 자료로 시험하지 않는다.
 
+## 담당 B: 가우시안 실험 실행하기
+
+현재 `image_processing.py`와 `experiments/gaussian_experiment.py`는 NumPy와 OpenCV를 사용한다. 처리 함수는 기존 RGB PIL 이미지를 입력받고 같은 크기의 새 RGB PIL 이미지를 반환한다. 원본 픽셀과 A, C 담당이 사용할 입출력 계약을 유지한다.
+
+### 준비와 실행
+
+아래 명령은 모두 PACS 최상단 폴더에서 실행한다. 의존성이 바뀌었으므로 처음에는 `uv sync --locked`로 환경을 맞춘다.
+
+1. 합성 도형 실험: `uv run --locked python experiments/gaussian_experiment.py`
+2. Lenna 컬러 실험: `uv run --locked python experiments/gaussian_experiment.py --input "./experiments/Lenna.png" --color-mode color`
+3. 같은 입력의 흑백 실험: `uv run --locked python experiments/gaussian_experiment.py --input "./experiments/Lenna.png" --color-mode grayscale`
+4. 옵션 확인: `uv run --locked python experiments/gaussian_experiment.py --help`
+
+프로젝트 환경을 이미 활성화했다면 앞의 `uv run --locked python` 대신 `python`을 사용해도 된다. 예를 들어 `python experiments/gaussian_experiment.py --input "./experiments/Lenna.png"`는 Lenna 컬러 실험이다. 입력 경로를 생략하면 합성 도형 실험으로 실행된다. `--input` 뒤의 파일이 실제로 있어야 하며 다른 영상을 쓰려면 그 경로로 바꾼다.
+
+### 결과 확인
+
+- 합성 도형: [비교 이미지](docs/image-processing/results/gaussian-opencv/synthetic/comparison.png), [측정값](docs/image-processing/results/gaussian-opencv/synthetic/summary.md).
+- 현재 저장된 Lenna 컬러: [비교 이미지](docs/image-processing/results/gaussian-opencv/external-color/comparison.png), [측정값](docs/image-processing/results/gaussian-opencv/external-color/summary.md).
+- 흑백 외부 입력의 기본 출력 폴더는 `docs/image-processing/results/gaussian-opencv/external-grayscale`다. 해당 명령을 실행하면 생성된다.
+- [결과 폴더 안내](docs/image-processing/results/README.md)에서 파일별 용도와 비교 이미지 읽는 방법을 확인한다.
+- [가우시안 구현과 실험 설명](docs/image-processing/gaussian.md)에서 함수 계약, 계산 기준과 A, B, C 연결 범위를 확인한다.
+
+같은 출력 폴더로 다시 실행하면 동일한 이름의 결과 파일을 덮어쓴다. 다른 실험을 보관하려면 명령 끝에 `--output ".local-data/gaussian-lenna-test"`처럼 별도 경로를 지정한다. 이 개발용 경로는 팀 공유 결과 폴더와 구분해 사용한다.
+
+비교 이미지의 행은 위에서부터 잡음 강도 0, 5, 20, 40이다. 열은 왼쪽부터 기준 영상, 잡음 입력, 처리 강도 0, 1, 2, 4다. 아래로 내려가며 잡음을 비교하고, 같은 행에서 오른쪽으로 이동하며 잡음 감소와 세부 구조 손실을 함께 확인한다. 잡음 추가는 필터 검증용 입력을 만드는 과정이며 AI 학습을 실행하는 기능은 아니다.
+
+### 실행 결과 사진
+
+아래 사진은 현재 저장된 독립 실험 결과다. 웹사이트 화면을 캡처한 사진은 아니다.
+
+#### 합성 도형
+
+![합성 도형의 잡음 강도와 가우시안 처리 강도 비교](docs/image-processing/results/gaussian-opencv/synthetic/comparison.png)
+
+같은 행에서 오른쪽으로 이동하며 잡음 감소와 경계 및 얇은 선의 흐려짐을 함께 확인한다.
+
+#### Lenna 컬러
+
+![Lenna 컬러의 잡음 강도와 가우시안 처리 강도 비교](docs/image-processing/results/gaussian-opencv/external-color/comparison.png)
+
+같은 잡음 입력에 가우시안 강도를 바꿨을 때 색상과 세부 구조가 어떻게 달라지는지 확인한다.
+
+두 사진 모두 위에서부터 잡음 강도 0, 5, 20, 40이다. 왼쪽부터 기준 영상, 잡음 입력, 필터 강도 0, 1, 2, 4다. 잡음 강도의 단위는 8비트 밝기값이고 필터 강도의 단위는 원본 픽셀이다. 각 영상 칸은 256×256이며, 두 비교판은 같은 크기와 조건 순서를 사용한다.
+
+### 앱 통합과 구분할 점
+
+현재 `app.py`는 가우시안 처리 함수를 뷰어에 전달하지 않는다. 코드를 합치고 앱을 실행해도 가우시안 버튼이나 결과가 자동으로 생기지 않는다. B의 독립 함수와 실험 결과를 먼저 확인하고, A의 화면 조작 및 C의 처리 기록 저장과 연결하는 작업은 별도로 진행한다. ROI와 DICOM 지원도 이번 가우시안 함수의 완료 범위에 포함하지 않는다.
+
 ## JCloud 배포
 
 배포 대상은 전북대학교 JCloud다. 학교의 배포 지침을 받으면 실행 환경, 환경 변수 등록과 HTTPS 접속 설정을 확인하고 이 문서에 실제 절차를 추가한다.
 
 ## 공식 참고 자료
 
-담당 B의 가우시안 함수·테스트·재현 가능한 비교 실험은
-[가우시안 구현 및 실험 설명](docs/image-processing/gaussian.md)을 참고한다.
-현재는 독립 처리 함수와 뷰어 콜백 테스트까지 제공하며 앱의 선택·강도 조절 화면 연결 전이다.
+담당 B의 실행 방법과 내부 계약은 위의 가우시안 안내에서 확인한다. 아래 자료는 저장소에서 기존에 참고하던 공식 문서다.
 
 - [Streamlit 실행 안내](https://docs.streamlit.io/get-started/fundamentals/main-concepts)
 - [Firebase Authentication 이메일 로그인 API](https://firebase.google.com/docs/reference/rest/auth#section-sign-in-email-password)
