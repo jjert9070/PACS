@@ -140,7 +140,7 @@ def save_summary(output, rows, synthetic):
     for row in rows:
         values = [f"{row[column]:.3f}" for column in columns]
         lines.append("| " + " | ".join(values) + " |")
-    (output / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (output / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 def save_experiment_info(output, sources, input_path, color_mode, synthetic):
@@ -148,6 +148,7 @@ def save_experiment_info(output, sources, input_path, color_mode, synthetic):
     info["algorithm_id"] = GAUSSIAN_ALGORITHM_ID
     info["algorithm_version"] = GAUSSIAN_ALGORITHM_VERSION
     info["python"] = platform.python_version()
+    info["platform"] = platform.platform()
     info["numpy"] = np.__version__
     info["opencv"] = cv2.__version__
     info["pillow"] = pillow_version
@@ -167,11 +168,12 @@ def save_experiment_info(output, sources, input_path, color_mode, synthetic):
     info["input_file"] = input_path.name if input_path else None
     info["input_sha256"] = hashlib.sha256(input_path.read_bytes()).hexdigest() if input_path else None
     info["resize"] = "256x256 INTER_AREA; aspect ratio may change for external input"
+    info["text_format"] = "UTF-8 without BOM; summary/manifest LF; CSV CRLF"
     info["sources"] = sources
     info["output_sha256"] = {}
     for path in sorted(output.glob("*.png")):
         info["output_sha256"][path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
-    (output / "manifest.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+    (output / "manifest.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
 def run(output, input_path=None, color_mode="color"):
