@@ -237,6 +237,10 @@ test_case_records.py는 저장과 재열기, 동일 요청 재시도, 수정 충
 
 ## 공식 참고 자료
 
+담당 B의 가우시안 함수·테스트·재현 가능한 비교 실험은
+[가우시안 구현 및 실험 설명](docs/image-processing/gaussian.md)을 참고한다.
+현재는 독립 처리 함수와 뷰어 콜백 테스트까지 제공하며 앱의 선택·강도 조절 화면 연결 전이다.
+
 - [Streamlit 실행 안내](https://docs.streamlit.io/get-started/fundamentals/main-concepts)
 - [Firebase Authentication 이메일 로그인 API](https://firebase.google.com/docs/reference/rest/auth#section-sign-in-email-password)
 - [Cloud Firestore REST API와 보안 규칙](https://firebase.google.com/docs/firestore/use-rest-api)
