@@ -1,5 +1,6 @@
 import unittest
 
+import numpy as np
 from PIL import Image
 
 from image_processing import gaussian_blur
@@ -44,6 +45,22 @@ class GaussianTests(unittest.TestCase):
         result = gaussian_blur(source, 2)
         self.assertTrue(40 < result.getpixel((19, 10))[0] < result.getpixel((20, 10))[0] < 200)
         self.assertEqual(result.tobytes(), gaussian_blur(source, 2).tobytes())
+
+    def test_known_kernel_and_reflect101_border(self):
+        # At sigma=1, the normalized 7-tap kernel has center weight ~0.39905.
+        # Reflect101 maps -1 to +1: a bright corner contributes once, not twice.
+        source = Image.new("RGB", (9, 9))
+        source.putpixel((0, 0), (255, 0, 0))
+        result = gaussian_blur(source, 1)
+        self.assertAlmostEqual(result.getpixel((0, 0))[0], 41, delta=1)
+        self.assertAlmostEqual(result.getpixel((1, 0))[0], 25, delta=1)
+        self.assertEqual(result.getpixel((0, 0))[1:], (0, 0))
+
+    def test_numpy_scalar_and_result_independence(self):
+        source = Image.new("RGB", (7, 7), (12, 93, 211))
+        result = gaussian_blur(source, np.float64(1.5))
+        result.putpixel((0, 0), (0, 0, 0))
+        self.assertEqual(source.getpixel((0, 0)), (12, 93, 211))
 
     def test_invalid_parameters_are_rejected(self):
         source = Image.new("RGB", (3, 3))
