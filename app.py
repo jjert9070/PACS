@@ -8,6 +8,7 @@ from case_ui import clear_cases, render_cases
 from local_storage_ui import render_local_storage
 from case_records_ui import render_case_records
 from gaussian_ui import process_gaussian, render_gaussian_controls
+from roi_ui import render_roi_controls, render_roi_statistics
 
 
 def clear_session() -> None:
@@ -75,6 +76,8 @@ def main() -> None:
         stored_source = st.session_state.get("viewer_stored_source")
     source = render_viewer(processor=process_gaussian,
                            processing_controls=render_gaussian_controls,
+                           roi_controls=render_roi_controls,
+                           roi_summary=render_roi_statistics,
                            stored_source=stored_source,
                            stored_result=st.session_state.get("viewer_stored_result") if stored_source else None)
 

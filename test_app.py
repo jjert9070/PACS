@@ -22,12 +22,16 @@ class PACSAppTests(unittest.TestCase):
             self.assertIsNotNone(app.session_state["viewer_identity"])
             app.button(key="viewer_processing_apply").click().run()
             self.assertIn("viewer_processing_result", app.session_state)
+            next(button for button in app.button if button.label == "ROI 적용").click().run()
+            self.assertIn("viewer_roi_statistics", app.session_state)
             next(button for button in app.button if button.label == "로그아웃").click().run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.radio), 0)
             self.assertNotIn("viewer_identity", app.session_state)
             self.assertNotIn("viewer_processing_result", app.session_state)
             self.assertNotIn("viewer_processing_applied", app.session_state)
+            self.assertNotIn("viewer_roi_bounds", app.session_state)
+            self.assertNotIn("viewer_roi_statistics", app.session_state)
 
     def test_missing_firebase_settings(self):
         # Firebase 설정이 없는 경우
