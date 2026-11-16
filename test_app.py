@@ -18,12 +18,16 @@ class PACSAppTests(unittest.TestCase):
             app.session_state["pacs_session"] = Session("test-user", "test@example.com", "fake-token", float("inf"))
             app.run()
             app.radio(key="viewer_mode").set_value("합성 예시").run()
+            app.button(key="viewer_rotate").click().run()
+            app.toggle(key="viewer_flip_horizontal").set_value(True).run()
             self.assertFalse(app.exception)
             self.assertIsNotNone(app.session_state["viewer_identity"])
+            self.assertEqual(app.session_state["viewer_turns"], 1)
             next(button for button in app.button if button.label == "로그아웃").click().run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.radio), 0)
-            self.assertNotIn("viewer_identity", app.session_state)
+            for key in ("viewer_identity", "viewer_turns", "viewer_flip_horizontal"):
+                self.assertNotIn(key, app.session_state)
 
     def test_missing_firebase_settings(self):
         # Firebase 설정이 없는 경우

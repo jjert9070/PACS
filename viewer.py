@@ -1,6 +1,6 @@
 """PNG/JPEG viewer UI and a small, explicit processing integration point."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
@@ -13,7 +13,18 @@ import streamlit as st
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_PIXELS = 20_000_000
-VIEW_KEYS = ("viewer_zoom", "viewer_x", "viewer_y")
+VIEW_DEFAULTS = {
+    "viewer_zoom": 1.0,
+    "viewer_x": 50,
+    "viewer_y": 50,
+    "viewer_turns": 0,
+    "viewer_flip_horizontal": False,
+    "viewer_flip_vertical": False,
+}
+
+CLOCKWISE_ROTATION = (
+    None, Image.Transpose.ROTATE_270, Image.Transpose.ROTATE_180, Image.Transpose.ROTATE_90
+)
 
 
 class ViewerInputError(ValueError):
@@ -27,6 +38,28 @@ class ViewerSource:
     file_format: str
     byte_count: int
     image: Image.Image
+    original_bytes: bytes | None = field(default=None, repr=False, kw_only=True)
+
+
+@dataclass(frozen=True)
+class ViewTransform:
+    """Crop in source coordinates, then rotate and flip along the display axes."""
+
+    box: tuple[int, int, int, int]
+    turns: int = 0
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
+
+    def apply(self, image: Image.Image) -> Image.Image:
+        preview = image.crop(self.box)
+        rotation = CLOCKWISE_ROTATION[self.turns % 4]
+        if rotation is not None:
+            preview = preview.transpose(rotation)
+        if self.flip_horizontal:
+            preview = ImageOps.mirror(preview)
+        if self.flip_vertical:
+            preview = ImageOps.flip(preview)
+        return preview
 
 
 def load_image(name: str, data: bytes) -> ViewerSource:
@@ -65,7 +98,8 @@ def load_image(name: str, data: bytes) -> ViewerSource:
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError,
             Image.DecompressionBombWarning, Image.DecompressionBombError) as error:
         raise ViewerInputError("영상 파일을 읽을 수 없습니다. 손상 여부와 파일 형식을 확인하세요.") from error
-    return ViewerSource(sha256(data).hexdigest(), name, expected, len(data), image)
+    return ViewerSource(sha256(data).hexdigest(), name, expected, len(data), image,
+                        original_bytes=data)
 
 
 def sample_image_bytes() -> bytes:
@@ -92,8 +126,11 @@ def viewport_box(size: tuple[int, int], zoom: float, x: int, y: int) -> tuple[in
 
 
 def reset_view() -> None:
-    for key, value in zip(VIEW_KEYS, (1.0, 50, 50)):
-        st.session_state[key] = value
+    st.session_state.update(VIEW_DEFAULTS)
+
+
+def rotate_view() -> None:
+    st.session_state.viewer_turns = (st.session_state.viewer_turns + 1) % 4
 
 
 def clear_viewer() -> None:
@@ -133,7 +170,7 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
         with canvas:
             st.error(str(error))
 
-    identity = (mode, source.source_id, source.name) if source else None
+    identity = source.source_id if source else None
     if st.session_state.get("viewer_identity") != identity:
         reset_view()
         st.session_state["viewer_identity"] = identity
@@ -168,11 +205,20 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
         y = st.slider("세로 위치", 0, 100, value=None, key="viewer_y", disabled=zoom == 1)
     box = viewport_box(source.image.size, zoom, x, y)
     with canvas:
-        st.caption(f"표시 영역: x=[{box[0]}, {box[2]}), y=[{box[1]}, {box[3]}) px · 두 창은 같은 위치와 배율을 사용합니다.")
+        rotate, horizontal, vertical = st.columns(3)
+        with rotate:
+            st.button("시계 방향 90° 회전", key="viewer_rotate", on_click=rotate_view)
+        with horizontal:
+            flip_horizontal = st.toggle("좌우 반전", key="viewer_flip_horizontal")
+        with vertical:
+            flip_vertical = st.toggle("상하 반전", key="viewer_flip_vertical")
+        turns = st.session_state.viewer_turns
+        transform = ViewTransform(box, turns, flip_horizontal, flip_vertical)
+        st.caption(f"원본 표시 영역: x=[{box[0]}, {box[2]}), y=[{box[1]}, {box[3]}) px · 회전 {turns * 90}°")
         original, processed = st.columns(2)
     # Limit only the display raster, never the processor's original-size input.
     def display(image: Image.Image) -> None:
-        preview = image.crop(box)
+        preview = transform.apply(image)
         preview.thumbnail((900, 900))
         st.image(preview, width="stretch")
 

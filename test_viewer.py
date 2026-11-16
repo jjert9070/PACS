@@ -7,7 +7,7 @@ import zlib
 from PIL import Image
 from streamlit.testing.v1 import AppTest
 
-from viewer import ViewerInputError, load_image, sample_image_bytes, viewport_box
+from viewer import ViewTransform, ViewerInputError, load_image, sample_image_bytes, viewport_box
 
 
 def encoded_image(file_format="PNG", size=(24, 16), mode="RGB"):
@@ -84,6 +84,7 @@ class ImageInputTests(unittest.TestCase):
             self.assertEqual(source.image.mode, "RGB")
             self.assertEqual(source.file_format, fmt)
             self.assertEqual(source.byte_count, len(data))
+            self.assertEqual(source.original_bytes, data)
             self.assertEqual(source.source_id, load_image(name, data).source_id)
 
     def test_rejects_corrupt_unsupported_empty_and_disguised_files(self):
@@ -115,6 +116,31 @@ class ImageInputTests(unittest.TestCase):
             viewport_box((640, 480), 0, 50, 50)
 
 
+class ViewTransformTests(unittest.TestCase):
+    def test_crop_then_clockwise_rotation_and_display_axis_flips(self):
+        source = Image.frombytes("L", (4, 2), bytes(range(1, 9)))
+        box = (1, 0, 4, 2)
+        rotated = ViewTransform(box, turns=1).apply(source)
+        self.assertEqual(rotated.size, (2, 3))
+        self.assertEqual(rotated.tobytes(), bytes([6, 2, 7, 3, 8, 4]))
+        self.assertEqual(ViewTransform(box, 1, True).apply(source).tobytes(),
+                         bytes([2, 6, 3, 7, 4, 8]))
+        self.assertEqual(ViewTransform(box, 1, False, True).apply(source).tobytes(),
+                         bytes([8, 4, 7, 3, 6, 2]))
+        self.assertEqual(ViewTransform(box, turns=4).apply(source).tobytes(),
+                         source.crop(box).tobytes())
+        self.assertEqual(source.tobytes(), bytes(range(1, 9)))
+
+    def test_zoom_and_rotation_at_the_edges_of_narrow_images(self):
+        for size in ((1, 1), (1, 17), (17, 1)):
+            with self.subTest(size=size):
+                source = Image.new("L", size, 73)
+                box = viewport_box(size, 4, 100, 100)
+                preview = ViewTransform(box, turns=1, flip_vertical=True).apply(source)
+                self.assertEqual(preview.size, (box[3] - box[1], box[2] - box[0]))
+                self.assertEqual(preview.getextrema(), (73, 73))
+
+
 class ViewerScreenTests(unittest.TestCase):
     def viewer_app(self, script="from viewer import render_viewer\nrender_viewer()"):
         return AppTest.from_string(script, default_timeout=10).run()
@@ -136,6 +162,33 @@ class ViewerScreenTests(unittest.TestCase):
         app.radio(key="viewer_mode").set_value("합성 예시").run()
         self.assertEqual(app.slider(key="viewer_zoom").value, 1.0)
         self.assertFalse(app.exception)
+
+    def test_rotation_flip_reset_and_source_change(self):
+        app = self.viewer_app()
+        app.radio(key="viewer_mode").set_value("합성 예시").run()
+        for turns in (1, 2, 3, 0):
+            app.button(key="viewer_rotate").click().run()
+            self.assertEqual(app.session_state["viewer_turns"], turns)
+        horizontal = "viewer_flip_horizontal"
+        vertical = "viewer_flip_vertical"
+        for key in (horizontal, vertical):
+            app.toggle(key=key).set_value(True).run()
+            self.assertTrue(app.toggle(key=key).value)
+            app.toggle(key=key).set_value(False).run()
+            self.assertFalse(app.toggle(key=key).value)
+            app.toggle(key=key).set_value(True).run()
+        app.button(key="viewer_rotate").click().run()
+        app.button[0].click().run()
+        self.assertEqual(app.session_state["viewer_turns"], 0)
+        self.assertFalse(app.toggle(key=horizontal).value)
+        self.assertFalse(app.toggle(key=vertical).value)
+        app.button(key="viewer_rotate").click().run()
+        app.toggle(key=horizontal).set_value(True).run()
+        app.radio(key="viewer_mode").set_value("파일 가져오기").run()
+        app.radio(key="viewer_mode").set_value("합성 예시").run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.session_state["viewer_turns"], 0)
+        self.assertFalse(app.toggle(key=horizontal).value)
 
     def test_processor_receives_copy_and_wrong_size_is_not_displayed(self):
         original = load_image("sample.png", sample_image_bytes())
