@@ -51,6 +51,17 @@ class GaussianWebTests(unittest.TestCase):
         self.assertEqual(app.session_state[PREFIX + "applied"]["radius"], 20)
         self.assertFalse(app.error)
 
+    def test_algorithm_selection_hides_settings_and_discards_result(self):
+        app = self.app()
+        self.apply(app, 2.0)
+        app.selectbox(key=PREFIX + "algorithm").set_value("선택 안 함").run()
+        self.assertEqual(len(app.number_input), 0)
+        self.assertNotIn(PREFIX + "result", app.session_state)
+        self.assertTrue(any("처리 알고리즘을 선택" in text.value for text in app.info))
+        app.selectbox(key=PREFIX + "algorithm").set_value("가우시안").run()
+        self.assertEqual(app.number_input(key=PREFIX + "radius").value, 1)
+        self.assertNotIn(PREFIX + "result", app.session_state)
+
     def test_draft_and_view_changes_do_not_reprocess_or_relabel(self):
         app = self.app()
         with patch("gaussian_ui.gaussian_blur", wraps=gaussian_blur) as processing:

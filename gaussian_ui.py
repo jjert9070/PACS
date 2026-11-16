@@ -16,6 +16,15 @@ PREFIX = "viewer_processing_"
 
 def render_gaussian_controls(source: ViewerSource) -> None:
     st.markdown("#### 가우시안 처리")
+    algorithm = st.selectbox(
+        "처리 알고리즘", ["선택 안 함", "가우시안"], index=1,
+        key=PREFIX + "algorithm",
+    )
+    if algorithm == "선택 안 함":
+        for name in ("result", "applied", "request", "error"):
+            st.session_state.pop(PREFIX + name, None)
+        st.info("가우시안을 선택하면 강도 설정을 표시합니다.")
+        return
     st.caption("강도는 원본 픽셀 단위 표준편차 σ입니다. 0은 원본과 같습니다.")
     radius = st.number_input(
         "가우시안 강도 (σ, px)",
@@ -64,6 +73,8 @@ def process_gaussian(image: Image.Image) -> Image.Image:
     result = st.session_state.get(PREFIX + "result")
     applied = st.session_state.get(PREFIX + "applied")
     if result is None or applied is None:
+        if st.session_state.get(PREFIX + "algorithm") == "선택 안 함":
+            raise ProcessingPending("처리 알고리즘을 선택하세요.")
         raise ProcessingPending("강도를 설정하고 가우시안 적용을 누르세요.")
     st.caption(
         f"가우시안 · {applied['algorithm_id']} · 버전 {applied['algorithm_version']} · "
