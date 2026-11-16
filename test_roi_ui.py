@@ -73,6 +73,45 @@ class ROIWebTests(unittest.TestCase):
         self.assertIsNone(app.session_state["viewer_roi_statistics"]["result"])
         self.assertEqual(app.session_state["viewer_roi_statistics"]["original"]["pixel_count"], 16)
 
+    def test_same_name_different_content_discards_roi(self):
+        script = '''import streamlit as st
+from io import BytesIO
+from PIL import Image
+from viewer import load_image, render_viewer
+from roi_ui import render_roi_controls, render_roi_statistics
+value = st.selectbox('fixture', [10, 200])
+stream = BytesIO()
+Image.new('RGB', (4, 3), (value, value, value)).save(stream, format='PNG')
+source = load_image('same.png', stream.getvalue())
+render_viewer(stored_source=source, roi_controls=render_roi_controls,
+              roi_summary=render_roi_statistics)
+'''
+        app = AppTest.from_string(script, default_timeout=15).run()
+        app.radio(key="viewer_mode").set_value("로컬 저장 영상").run()
+        self.apply_roi(app, (1, 1, 4, 3))
+        statistics = app.session_state["viewer_roi_statistics"]
+        self.assertEqual(statistics["original"]["mean"], 10)
+        previous_id = statistics["source_id"]
+        app.selectbox[0].set_value(200).run()
+        self.assertFalse(app.exception)
+        self.assertNotEqual(app.session_state["viewer_identity"][1], previous_id)
+        self.assertNotIn("viewer_roi_bounds", app.session_state)
+        self.assertNotIn("viewer_roi_statistics", app.session_state)
+        self.apply_roi(app, (0, 0, 4, 3))
+        self.assertEqual(app.session_state["viewer_roi_statistics"]["original"]["mean"], 200)
+
+    def test_wrong_result_size_cannot_keep_previous_roi_result_statistics(self):
+        app = self.app()
+        self.apply_roi(app, (0, 0, 4, 4))
+        app.button(key="viewer_processing_apply").click().run()
+        with patch("gaussian_ui.gaussian_blur", return_value=Image.new("RGB", (1, 1))):
+            app.button(key="viewer_processing_apply").click().run()
+        self.assertTrue(app.error)
+        self.assertFalse(app.exception)
+        stats = app.session_state["viewer_roi_statistics"]
+        self.assertEqual(stats["original"]["pixel_count"], 16)
+        self.assertIsNone(stats["result"])
+
     def test_source_change_clear_and_logout(self):
         app = self.app()
         self.apply_roi(app, (0, 0, 1, 1))

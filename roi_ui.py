@@ -51,6 +51,7 @@ def render_roi_statistics(source: ViewerSource, result, bounds):
         st.session_state.pop(PREFIX + "statistics", None)
         st.error(str(error))
         return
+    statistics["source_id"] = source.source_id
     st.session_state[PREFIX + "statistics"] = statistics
     st.caption(
         f"적용 ROI {tuple(statistics['bounds'])} · {statistics['width']} × {statistics['height']} px · "

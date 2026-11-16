@@ -1,10 +1,22 @@
 """P02 statistics on EXIF-corrected RGB originals, never display crops."""
 
 import numpy as np
-from PIL import Image
+from PIL import Image, __version__ as pillow_version
 
 COORDINATE_SYSTEM = "exif_transposed_original_pixels_v1"
 BRIGHTNESS_METHOD = "pillow_L_v1"
+
+
+def calculation_metadata() -> dict:
+    """Record the actual calculation environment for a future saved record."""
+    return {
+        "numpy": np.__version__,
+        "pillow": pillow_version,
+        "brightness_method": BRIGHTNESS_METHOD,
+        "variance_definition": "population",
+        "ddof": 0,
+        "calculation_dtype": "float64",
+    }
 
 
 def validate_roi(bounds, size) -> tuple[int, int, int, int]:
@@ -47,8 +59,12 @@ def compare_roi(original: Image.Image, result: Image.Image | None, bounds) -> di
             raise ValueError("결과는 원본과 같은 크기여야 합니다.")
     left, top, right, bottom = validated
     return {
-        "bounds": list(validated), "width": right - left, "height": bottom - top,
-        "coordinate_system": COORDINATE_SYSTEM, "brightness_method": BRIGHTNESS_METHOD,
+        "bounds": list(validated),
+        "width": right - left,
+        "height": bottom - top,
+        "coordinate_system": COORDINATE_SYSTEM,
+        "brightness_method": BRIGHTNESS_METHOD,
+        "calculation": calculation_metadata(),
         "original": brightness_statistics(original, validated),
         "result": None if result is None else brightness_statistics(result, validated),
     }

@@ -310,6 +310,12 @@ C의 처리 기록 저장 연결과 DICOM은 후속 작업이다.
 **ROI 해제**, 영상 교체와 로그아웃으로 선택 상태를 정리한다.
 [계산 기준, 함수 계약과 C 전달 형식](docs/image-processing/roi.md)을 참고한다.
 
+같은 ROI에서 잡음·가우시안 강도의 영향을 비교하려면
+`uv run --locked python experiments/roi_experiment.py`를 실행한다.
+[고정 ROI 실험 결과](docs/image-processing/results/roi-gaussian/summary.md)는
+평탄부·경계·얇은 선의 좌표/크기와 원본·결과 평균/모집단 분산을 기록한다.
+같은 출력 폴더의 파일을 덮어쓰므로 별도로 보관하려면 `--output .local-data/roi-test`를 지정한다.
+
 ## JCloud 배포
 
 배포 대상은 전북대학교 JCloud다. 학교의 배포 지침을 받으면 실행 환경, 환경 변수 등록과 HTTPS 접속 설정을 확인하고 이 문서에 실제 절차를 추가한다.
