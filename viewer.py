@@ -20,6 +20,10 @@ class ViewerInputError(ValueError):
     """A file cannot be safely displayed within this starter's support limits."""
 
 
+class ProcessingPending(Exception):
+    """A processor has no applied result yet; display guidance, not an error."""
+
+
 @dataclass(frozen=True)
 class ViewerSource:
     source_id: str
@@ -109,6 +113,7 @@ def render_viewer(
     *,
     stored_source: ViewerSource | None = None,
     stored_result: Image.Image | None = None,
+    processing_controls: Callable[[ViewerSource], None] | None = None,
 ) -> ViewerSource | None:
     """Processor receives a COPY of the RGB source and must return the same size.
 
@@ -146,6 +151,9 @@ def render_viewer(
     identity = (mode, source.source_id, source.name) if source else None
     if st.session_state.get("viewer_identity") != identity:
         reset_view()
+        for key in list(st.session_state):
+            if key.startswith("viewer_processing_"):
+                del st.session_state[key]
         st.session_state["viewer_identity"] = identity
     if source is None:
         with canvas:
@@ -156,6 +164,9 @@ def render_viewer(
         return None
 
     width, height = source.image.size
+    if processing_controls is not None:
+        with selection:
+            processing_controls(source)
     with details:
         st.markdown("#### 영상 정보")
         st.text(source.name)
@@ -203,6 +214,11 @@ def render_viewer(
                 if not isinstance(result, Image.Image) or result.size != source.image.size:
                     raise ValueError("처리 결과는 원본과 같은 크기의 PIL 이미지여야 합니다.")
                 display(result)
+            except ProcessingPending as pending:
+                if mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
+                    display(stored_result)
+                    st.caption("이 케이스에 저장된 처리 결과입니다. 새 가우시안 적용 결과와 구분하세요.")
+                st.info(str(pending))
             except Exception:
                 st.error("영상 처리에 실패했습니다. 원본은 유지됩니다. 처리 입력과 결과 크기를 확인하세요.")
     st.caption("현재 보기는 세션 상태입니다. 원본 파일 저장과 케이스 연결 상태는 아래에서 별도로 확인합니다.")
