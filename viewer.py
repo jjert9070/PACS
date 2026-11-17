@@ -235,7 +235,7 @@ def render_viewer(
                 if mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
                     display(stored_result)
                     displayed_result = stored_result
-                    st.caption("이 케이스에 저장된 처리 결과입니다. 새 가우시안 적용 결과와 구분하세요.")
+                    st.caption("이 케이스에 저장된 처리 결과입니다. 새로 적용한 처리 결과와 구분하세요.")
                 st.info(str(pending))
             except Exception:
                 st.error("영상 처리에 실패했습니다. 원본은 유지됩니다. 처리 입력과 결과 크기를 확인하세요.")

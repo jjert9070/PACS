@@ -1,4 +1,4 @@
-"""Explicit Gaussian application with session-only results for the current source."""
+"""Explicit processing (Gaussian, threshold) with session-only results for the current source."""
 
 import streamlit as st
 from PIL import Image
@@ -7,45 +7,94 @@ from image_processing import (
     GAUSSIAN_ALGORITHM_ID,
     GAUSSIAN_ALGORITHM_VERSION,
     MAX_GAUSSIAN_RADIUS,
+    MAX_THRESHOLD,
+    MIN_THRESHOLD,
+    THRESHOLD_ALGORITHM_ID,
+    THRESHOLD_ALGORITHM_VERSION,
     gaussian_blur,
+    threshold_segmentation,
 )
 from viewer import ProcessingPending, ViewerSource
 
 PREFIX = "viewer_processing_"
+NONE = "선택 안 함"
+GAUSSIAN = "가우시안"
+THRESHOLD = "임계값 분할"
+ALGORITHM_IDS = {GAUSSIAN: GAUSSIAN_ALGORITHM_ID, THRESHOLD: THRESHOLD_ALGORITHM_ID}
+ALGORITHM_LABELS = {value: key for key, value in ALGORITHM_IDS.items()}
+STATE_NAMES = ("result", "applied", "request", "error")
+
+
+def _clear_processing() -> None:
+    for name in STATE_NAMES:
+        st.session_state.pop(PREFIX + name, None)
+
+
+def _describe(algorithm_id: str, parameters: dict) -> str:
+    if algorithm_id == THRESHOLD_ALGORITHM_ID:
+        return f"임계값={parameters['threshold']} (L ≥ 임계값 → 흰색)"
+    return f"σ={parameters['radius']:g} px"
 
 
 def render_gaussian_controls(source: ViewerSource) -> None:
-    st.markdown("#### 가우시안 처리")
+    st.markdown("#### 영상 처리")
     algorithm = st.selectbox(
-        "처리 알고리즘", ["선택 안 함", "가우시안"], index=1,
+        "처리 알고리즘", [NONE, GAUSSIAN, THRESHOLD], index=1,
         key=PREFIX + "algorithm",
     )
-    if algorithm == "선택 안 함":
-        for name in ("result", "applied", "request", "error"):
-            st.session_state.pop(PREFIX + name, None)
-        st.info("가우시안을 선택하면 강도 설정을 표시합니다.")
+    # A result made by another algorithm must not stay on screen as the new choice.
+    if st.session_state.get(PREFIX + "selected") != algorithm:
+        _clear_processing()
+        st.session_state[PREFIX + "selected"] = algorithm
+    if algorithm == NONE:
+        st.info("알고리즘을 선택하면 해당 설정을 표시합니다.")
         return
-    st.caption("강도는 원본 픽셀 단위 표준편차 σ입니다. 0은 원본과 같습니다.")
-    radius = st.number_input(
-        "가우시안 강도 (σ, px)",
-        min_value=0.0,
-        max_value=MAX_GAUSSIAN_RADIUS,
-        value=1.0,
-        step=0.5,
-        key=PREFIX + "radius",
-    )
-    if st.button("가우시안 적용", key=PREFIX + "apply"):
-        st.session_state.pop(PREFIX + "result", None)
-        st.session_state.pop(PREFIX + "applied", None)
+    if algorithm == THRESHOLD:
+        st.caption("Pillow L 밝기(0~255)가 임계값 이상이면 흰색, 미만이면 검은색입니다. 같은 값은 흰색입니다.")
+        value = st.number_input(
+            "임계값 (L 밝기, 정수)",
+            min_value=MIN_THRESHOLD,
+            max_value=MAX_THRESHOLD,
+            value=128,
+            step=1,
+            key=PREFIX + "threshold",
+        )
+        parameters = {"threshold": int(value)}
+    else:
+        st.caption("강도는 원본 픽셀 단위 표준편차 σ입니다. 0은 원본과 같습니다.")
+        value = st.number_input(
+            "가우시안 강도 (σ, px)",
+            min_value=0.0,
+            max_value=MAX_GAUSSIAN_RADIUS,
+            value=1.0,
+            step=0.5,
+            key=PREFIX + "radius",
+        )
+        parameters = {"radius": float(value)}
+    algorithm_id = ALGORITHM_IDS[algorithm]
+    if st.button(f"{algorithm} 적용", key=PREFIX + "apply"):
+        _clear_processing()
         st.session_state[PREFIX + "request"] = {
             "source_id": source.source_id,
-            "radius": radius,
+            "algorithm_id": algorithm_id,
+            "parameters": parameters,
         }
-        st.session_state.pop(PREFIX + "error", None)
     # Draft settings never relabel a previously applied result.
     applied = st.session_state.get(PREFIX + "applied")
-    if applied and radius != applied["radius"]:
-        st.info(f"설정이 변경됐습니다. 현재 표시 결과는 적용 강도 {applied['radius']:g} px입니다.")
+    if applied and applied["parameters"] != parameters:
+        st.info(
+            f"설정이 변경됐습니다. 현재 표시 결과는 적용 "
+            f"{_describe(applied['algorithm_id'], applied['parameters'])}입니다."
+        )
+
+
+def _run(image: Image.Image, request: dict) -> tuple[Image.Image, str]:
+    parameters = request["parameters"]
+    if request["algorithm_id"] == THRESHOLD_ALGORITHM_ID:
+        return threshold_segmentation(image, parameters["threshold"]), THRESHOLD_ALGORITHM_VERSION
+    if request["algorithm_id"] == GAUSSIAN_ALGORITHM_ID:
+        return gaussian_blur(image, parameters["radius"]), GAUSSIAN_ALGORITHM_VERSION
+    raise ValueError("Unsupported algorithm")
 
 
 def process_gaussian(image: Image.Image) -> Image.Image:
@@ -53,7 +102,7 @@ def process_gaussian(image: Image.Image) -> Image.Image:
     request = st.session_state.pop(PREFIX + "request", None)
     if request is not None:
         try:
-            result = gaussian_blur(image, request["radius"])
+            result, version = _run(image, request)
             if not isinstance(result, Image.Image) or result.mode != "RGB" or result.size != image.size:
                 raise ValueError("Invalid processing result")
         except Exception:
@@ -64,20 +113,23 @@ def process_gaussian(image: Image.Image) -> Image.Image:
             st.session_state[PREFIX + "result"] = result
             st.session_state[PREFIX + "applied"] = {
                 "source_id": request["source_id"],
-                "algorithm_id": GAUSSIAN_ALGORITHM_ID,
-                "algorithm_version": GAUSSIAN_ALGORITHM_VERSION,
-                "radius": float(request["radius"]),
+                "algorithm_id": request["algorithm_id"],
+                "algorithm_version": version,
+                "parameters": dict(request["parameters"]),
             }
     if st.session_state.get(PREFIX + "error"):
-        raise ValueError("Gaussian processing failed")
+        raise ValueError("Image processing failed")
     result = st.session_state.get(PREFIX + "result")
     applied = st.session_state.get(PREFIX + "applied")
+    selected = st.session_state.get(PREFIX + "algorithm")
     if result is None or applied is None:
-        if st.session_state.get(PREFIX + "algorithm") == "선택 안 함":
+        if selected == NONE:
             raise ProcessingPending("처리 알고리즘을 선택하세요.")
-        raise ProcessingPending("강도를 설정하고 가우시안 적용을 누르세요.")
+        raise ProcessingPending(f"설정을 정하고 {selected or GAUSSIAN} 적용을 누르세요.")
+    label = ALGORITHM_LABELS.get(applied["algorithm_id"], applied["algorithm_id"])
     st.caption(
-        f"가우시안 · {applied['algorithm_id']} · 버전 {applied['algorithm_version']} · "
-        f"실제 적용 σ={applied['radius']:g} px (원본 픽셀)"
+        f"{label} · {applied['algorithm_id']} · 버전 {applied['algorithm_version']} · "
+        f"실제 적용 {_describe(applied['algorithm_id'], applied['parameters'])}"
+        + (" (원본 픽셀)" if applied["algorithm_id"] == GAUSSIAN_ALGORITHM_ID else "")
     )
     return result
