@@ -6,18 +6,22 @@ import streamlit as st
 
 from case_records import (
     CaseConflict, ProcessingRecord, get_case, list_cases, list_versions,
-    reopen_case, save_case,
+    reopen_case_processing, save_case,
 )
 from firebase_client import FirebaseRequestError, Session
 from local_storage import storage_root
-from viewer import ViewerSource
+from viewer import ViewerSource, reset_view
+from case_processing import freeze_processing, validate_processing
 
 
 def _error(error: Exception) -> None:
     if isinstance(error, FirebaseRequestError):
         if error.status == 401:
             raise error
-        st.error("케이스 요청에 실패했습니다. 연결과 본인 케이스용 Firestore 규칙을 확인하세요.")
+        if error.status == 403:
+            st.error("Firestore가 케이스 접근을 거절했습니다 (403). 사용 중인 프로젝트와 본인 케이스용 보안 규칙을 확인하세요.")
+        else:
+            st.error("케이스 요청에 실패했습니다. 연결과 본인 케이스용 Firestore 규칙을 확인하세요.")
     else:
         st.error(str(error))
 
@@ -34,7 +38,9 @@ def _switch(project_id: str, session: Session, case_id: str | None) -> None:
         return
     try:
         record = get_case(project_id, session, case_id) if case_id else None
-        restored = reopen_case(storage_root(), session, record) if record else None
+        restored = reopen_case_processing(storage_root(), session, record) if record else None
+        if restored:
+            validate_processing(*restored)
     except (FirebaseRequestError, ValueError) as error:
         if isinstance(error, FirebaseRequestError) and error.status == 401:
             from app import clear_session
@@ -50,17 +56,24 @@ def _switch(project_id: str, session: Session, case_id: str | None) -> None:
     for key in ("case_record_pending", "case_record_history", "case_record_error", "case_record_saved"):
         st.session_state.pop(key, None)
     st.session_state["case_record_discard"] = False
+    # Clear even when switching between two cases with identical source bytes.
+    for key in list(st.session_state):
+        if key.startswith(("viewer_current_", "viewer_displayed_", "viewer_stored_")):
+            st.session_state.pop(key, None)
+    reset_view()
     if restored:
-        source, result = restored
+        source, processing = restored
         st.session_state["viewer_stored_source"] = source
         st.session_state["viewer_stored_owner"] = session.uid
-        st.session_state["viewer_stored_result"] = result
+        st.session_state["viewer_stored_result"] = processing.result if processing else None
+        st.session_state["viewer_stored_processing"] = processing
         st.session_state["viewer_mode"] = "로컬 저장 영상"
 
 
 def render_case_records(
     project_id: str, session: Session, source: ViewerSource | None,
     processing: ProcessingRecord | None = None,
+    processing_error: str | None = None,
 ) -> None:
     st.subheader("원본과 연결된 내 케이스")
     st.caption("원본은 개발용 PC에, 제목과 메모, 출처와 버전은 Firestore에 저장합니다. 검토 요청과 역할 배정은 이번 범위에서 제외했습니다.")
@@ -107,9 +120,16 @@ def render_case_records(
     provenance = st.text_area("원본 출처와 사용 허용 근거", max_chars=2000, key="case_record_provenance")
     if loaded and (source is None or source.source_id != loaded.values["source_id"]):
         st.warning("수정 대상과 뷰어 원본이 다릅니다. 같은 케이스를 다시 열거나 새 케이스로 작성하세요.")
+    if processing_error:
+        st.error(processing_error)
     pending = st.session_state.get("case_record_pending")
-    submit = st.button("원본과 케이스 저장", disabled=source is None or pending is not None or bool(st.session_state.get("case_record_saved")), key="case_record_save")
+    submit = st.button("원본과 케이스 저장", disabled=bool(processing_error) or source is None or pending is not None or bool(st.session_state.get("case_record_saved")), key="case_record_save")
     if submit:
+        try:
+            processing = freeze_processing(source, processing)
+        except ValueError as error:
+            st.error(str(error))
+            return
         pending = dict(case_id=loaded.case_id if loaded else uuid4().hex,
                        operation_id=uuid4().hex, source=source, title=title, note=note,
                        provenance=provenance, base=loaded, processing=processing)

@@ -255,22 +255,42 @@ def save_case(
     try:
         _request(collection.split("/documents/")[0] + "/documents:commit", session, {"writes": writes})
     except FirebaseRequestError as error:
-        logger.warning("case_save_failed uid=%s case=%s operation=%s status=%s original=%s",
-                       session.uid, case_id, operation_id, error.status, original_key)
+        logger.warning("case_save_failed case=%s operation=%s status=%s exception=%s",
+                       case_id, operation_id, error.status, type(error).__name__)
         # A previous response may have been lost. Immutable version proves this exact write.
-        if error.status not in {400, 409}:
+        if error.status not in {400, 403, 409}:
+            logger.warning("case_save_reason case=%s reason=request_failed status=%s", case_id, error.status)
             raise
         try:
             existing = _decode(_request(version_path, session), collection, case_id)
         except FirebaseRequestError as read_error:
             if read_error.status == 404:
+                if error.status == 403:
+                    # Rules may reject an old version before the write precondition runs.
+                    if base is not None:
+                        try:
+                            latest = get_case(project_id, session, case_id)
+                        except FirebaseRequestError as check_error:
+                            logger.warning("case_save_reason case=%s reason=latest_read_failed status=%s",
+                                           case_id, check_error.status)
+                            raise
+                        if latest.update_time != base.update_time:
+                            logger.warning("case_save_reason case=%s reason=stale_case_version base_version=%s latest_version=%s",
+                                           case_id, base.values["version"], latest.values["version"])
+                            raise CaseConflict("다른 창에서 먼저 저장했습니다. 현재 입력은 유지됩니다. 최신 버전을 다시 열어 비교하세요.") from None
+                    logger.warning("case_save_reason case=%s reason=permission_denied_or_rule_rejected status=403", case_id)
+                    raise error from None
+                logger.warning("case_save_reason case=%s reason=write_conflict status=%s", case_id, error.status)
                 raise CaseConflict("다른 변경이 먼저 저장됐습니다. 최신 버전을 다시 열어 비교하세요.") from None
+            logger.warning("case_save_reason case=%s reason=version_read_failed status=%s", case_id, read_error.status)
             raise
         if existing.values != values:
+            logger.warning("case_save_reason case=%s reason=operation_id_payload_mismatch", case_id)
             raise CaseConflict("같은 작업 ID에 다른 내용이 있습니다. 덮어쓰지 않았습니다.")
+        logger.warning("case_save_reason case=%s reason=previous_save_confirmed_no_duplicate", case_id)
 
 
-def reopen_case(root: Path, session: Session, record: CaseRecord) -> tuple[ViewerSource, Image.Image | None]:
+def reopen_case_processing(root: Path, session: Session, record: CaseRecord) -> tuple[ViewerSource, ProcessingRecord | None]:
     if session.is_expired():
         raise FirebaseRequestError(401)
     values = record.values
@@ -281,7 +301,7 @@ def reopen_case(root: Path, session: Session, record: CaseRecord) -> tuple[Viewe
             or source.byte_count != values["byte_count"]):
         raise ValueError("저장 기록과 원본이 일치하지 않습니다.")
     metadata = json.loads(values["record_json"])
-    result = None
+    processing = None
     if metadata:
         if metadata.get("source_id") != source.source_id or metadata.get("coordinate_space") != "exif_transposed_original_pixels_v1":
             raise ValueError("처리 기록의 원본/좌표 기준이 일치하지 않습니다.")
@@ -296,4 +316,10 @@ def reopen_case(root: Path, session: Session, record: CaseRecord) -> tuple[Viewe
         _processing_json(processing, source)
     # Restore the user's original display name, not the content-addressed disk key.
     from dataclasses import replace
-    return replace(source, name=values["original_name"]), result
+    return replace(source, name=values["original_name"]), processing
+
+
+def reopen_case(root: Path, session: Session, record: CaseRecord) -> tuple[ViewerSource, Image.Image | None]:
+    """Keep the existing image-only interface for callers that do not restore records."""
+    source, processing = reopen_case_processing(root, session, record)
+    return source, processing.result if processing else None

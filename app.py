@@ -73,11 +73,17 @@ def main() -> None:
     if st.session_state.get("viewer_stored_owner") == session.uid:
         stored_source = st.session_state.get("viewer_stored_source")
     source = render_viewer(stored_source=stored_source,
-                           stored_result=st.session_state.get("viewer_stored_result") if stored_source else None)
+                           stored_result=st.session_state.get("viewer_stored_result") if stored_source else None,
+                           processing_record=st.session_state.get("viewer_current_processing"),
+                           stored_processing=st.session_state.get("viewer_stored_processing") if stored_source else None)
 
     with st.expander("케이스 등록과 다시 열기, 변경 이력"):
         try:
-            render_case_records(project_id, session, source)
+            render_case_records(
+                project_id, session, source,
+                processing=st.session_state.get("viewer_displayed_processing"),
+                processing_error=st.session_state.get("viewer_processing_contract_error"),
+            )
         except FirebaseRequestError:
             clear_session()
             st.rerun()

@@ -1,0 +1,146 @@
+# C 담당 처리 기록 저장과 복원
+
+기준: C 명세서 C02의 처리 기록 재열기, C03의 입력과 결과 참조 보존.
+작성일: 2026년 11월 17일.
+
+## 이번 구현 범위
+
+처리 알고리즘을 실행하는 코드는 포함하지 않는다. B 브랜치의 파일을 가져오거나
+모듈을 연결하지 않았다. C가 전달받은 처리 기록을 검증하고 저장하며, 저장한
+이미지와 설정, ROI와 통계를 다시 표시하는 부분만 구현했다.
+
+- 처리 기록은 기존 `ProcessingRecord`를 사용한다.
+- `case_processing.freeze_processing`은 원본 참조와 RGB 결과 크기, ROI 범위,
+  통계 참조와 계산 정의를 검사하고 이미지와 설정, 통계를 복사한다.
+- 저장 재시도는 최초 제출한 복사본을 사용한다. 이후 화면 입력이나 호출자의
+  이미지가 바뀌어도 실패한 요청의 내용을 바꾸지 않는다.
+- `reopen_case_processing`은 검증한 원본과 처리 기록을 반환한다.
+- 기존 `reopen_case`의 원본과 결과 이미지 반환 방식은 유지했다.
+- 복원 시 알고리즘을 다시 실행하지 않는다. 저장 당시 설정과 통계를 표시하고
+  원본과 결과에 같은 ROI 테두리를 표시한다. 보기 확대는 저장 통계를 바꾸지 않는다.
+- 다른 원본의 기록이나 불완전한 ROI 통계는 표시와 저장을 거절한다.
+- 케이스 전환은 같은 원본을 사용하는 다른 케이스라도 이전 현재 기록을 정리한다.
+
+## C의 입력 계약
+
+`viewer_current_processing`은 현재 원본에 실제 적용된 `ProcessingRecord`만 받는다.
+아직 적용하지 않은 설정 입력값은 이 자리에 넣지 않는다. 현재 C 화면에는
+알고리즘 실행 버튼이나 이 입력을 생산하는 B 연결이 없다.
+
+`render_viewer`의 `processing_record`는 현재 기록이며, `stored_processing`은
+케이스에서 읽은 기록이다. 현재 기록이 있으면 이를 표시하고, 없으면 로컬 저장
+영상 모드에서 저장 기록을 표시한다. 현재 기록이 잘못됐으면 이전 결과를 대신
+표시하지 않고 저장도 막는다. 화면은 각각 ‘현재 세션의 처리 기록 (저장 전)’과
+‘저장 당시 처리 기록’으로 구분한다.
+
+뷰어가 검증해 표시한 `viewer_displayed_processing`만 앱이 케이스 저장 화면에
+전달한다. 실제 파일과 Firestore 저장은 기존 `save_case`를 사용한다.
+
+ROI 통계에는 `source_id`, 원본 기준 `bounds`, `coordinate_system`,
+`brightness_method`, `calculation`, `original`, `result`를 전달한다.
+이번 계약의 좌표 기준은 `exif_transposed_original_pixels_v1`, 밝기 정의는
+`pillow_L_v1`, 분산 정의는 `population`, `ddof`는 정수 0이다.
+각 영상의 통계에는 `pixel_count`, `mean`, `population_variance`가 필요하다.
+
+C는 통계를 다시 계산하거나 알고리즘의 설정값별 수학적 정확성을 검증하지 않는다.
+실제 픽셀에 대한 계산과 그 결과의 정확성은 처리 기능의 검증 대상이다.
+계산 환경의 버전 정보를 포함한 추가 필드는 그대로 보존한다.
+
+## 검증 결과와 직접 확인 방법
+
+PACS 폴더에서 `python -m unittest test_case_records -v`로 저장과 복원 시험을,
+`python -m unittest discover -v`로 전체 회귀 시험을 실행할 수 있다.
+프로젝트 환경에서 Python을 실행해야 한다.
+
+전체 58개 시험이 통과했다. 저장과 복원에 추가한 네 시험은 다음 내용을 확인한다.
+
+1. 처리 설정과 이미지, ROI 통계의 복사와 잘못된 참조 거절.
+2. 앱에서 처리 기록 저장 후 별도 AppTest 세션으로 다시 열기, 메모 수정 후 기록
+   유지, 저장 당시 결과와 현재 결과 구분, 같은 케이스 다시 열기와 로그아웃 정리.
+3. 다른 원본 처리 기록의 표시 거절과 저장 버튼 비활성화.
+4. 저장 실패 뒤 호출자가 이미지와 설정을 변경해도 최초 요청으로 재시도.
+
+시험용 결과는 테스트 안에서 Pillow로 만든 합성 데이터다. B 모듈을 실행하지 않는다.
+파일 저장은 임시 디렉터리에서 실제 수행하고 Firestore 응답은 모의 구현을 사용한다.
+일반 앱 실행 시 B 처리 버튼이 추가되지는 않는다. 기존 처리 기록이 없는 케이스에서
+새로운 처리 결과를 수동 생성하려면 별도로 합의한 처리 기능 연결이 필요하다.
+
+실제 Firebase 쓰기, 보안 규칙 강제 적용, 프로세스 재시작과 JCloud 보존,
+B의 가우시안 및 ROI 계산과 연결한 통합 시험은 이번에 수행하지 않았다.
+등록자와 검토자의 미정 권한 정책은 추가하지 않았다.
+
+### 두 창 저장 충돌의 오류 분류
+
+Firestore 규칙의 버전 증가 조건 때문에 오래된 입력이 HTTP 403으로 거절될 수 있다.
+403이라는 상태 코드만 보고 버전 충돌이라고 단정하지 않는다.
+
+`save_case`는 거절 후 같은 작업 ID의 변경 이력을 읽는다. 저장 내용이 정확히
+같으면 앞선 저장의 성공을 확인한 것으로 처리하고 새 기록을 만들지 않는다.
+해당 이력이 없고 기존 케이스를 수정하던 중이면 최신 케이스를 읽어 처음 열었던
+`updateTime`과 비교한다. 변경이 확인될 때만 `CaseConflict`로 안내한다.
+권한이 없어 최신 기록을 읽을 수 없거나 버전 변경이 확인되지 않으면 일반 접근
+거절을 유지한다. 실패한 쓰기를 자동 덮어쓰기나 새 작업으로 재전송하지 않는다.
+
+터미널은 Python logging으로 케이스 ID, 작업 ID, HTTP 상태와 예외 종류를 기록하고
+이어서 판정 이유를 기록한다. 토큰과 비밀번호, 제목과 메모 내용은 넣지 않는다.
+
+| reason | 뜻 |
+|---|---|
+| `stale_case_version` | 처음 읽은 버전보다 새 변경이 있음. 기준 버전과 최신 버전도 기록 |
+| `permission_denied_or_rule_rejected` | 버전 충돌을 확인하지 못한 접근 또는 규칙 거절 |
+| `previous_save_confirmed_no_duplicate` | 동일 작업의 기존 저장을 확인함. 중복 저장하지 않음 |
+| `operation_id_payload_mismatch` | 같은 작업 ID에 다른 내용을 사용함 |
+| `latest_read_failed` / `version_read_failed` | 원인 확인에 필요한 기록을 읽지 못함 |
+| `write_conflict` | 기존 400 또는 409 충돌 처리 경로 |
+| `request_failed` | 위 분류에 해당하지 않는 요청 실패. 상태 코드를 함께 확인 |
+
+추가한 다섯 시험으로 403 버전 충돌과 선행 저장 보존, 진짜 접근 거절,
+기존 요청 확인과 다른 내용의 재사용 거절, 확인용 읽기 거절, 화면 충돌 안내와
+입력 유지를 확인했다. Firestore는 모의 응답을 사용했다. 실제 두 창의 403 로그를
+계기로 추가한 회귀 시험이며 수정 후 실제 Firebase 두 창 재시험은 별도다.
+
+## GitHub 기준 브랜치 의존성과 호환성
+
+GitHub 공개 API와 아래 고정 커밋의 코드 및 의존성을 읽어 확인했다.
+로컬 브랜치의 fetch, checkout, cherry-pick, merge 또는 B 모듈 실행은 하지 않았다.
+
+| 브랜치 | 확인한 커밋 | 원격 C 기준 관계 |
+|---|---|---|
+| C `feature/case-management` | `02217e3` | 비교 기준 |
+| A `feature/viewer-controls` | `6c628f5` | 공통 기반 이후 분기, A 고유 1개와 C 고유 4개 커밋 |
+| B `feature/gaussian-web` | `6e6e8d4` | 기존 C 커밋 포함, 이후 9개 커밋 |
+| B `feature/roi-statistics` | `c238702` | 기존 C 커밋 포함, 이후 11개 커밋 |
+
+위 관계는 원격 C `02217e3`와의 비교다. 이번 미커밋 C 수정이 B에 반영됐다는 뜻은 아니다.
+
+### 함수 계약
+
+- A의 `render_viewer`는 `processor`만 받는다. C 앱이 사용하는 `stored_source`,
+  `stored_result` 및 이번 `processing_record`, `stored_processing` 인자를 받지
+  못하므로 A 뷰어 파일로 단순 교체하면 호출에서 오류가 발생한다.
+- A의 `ViewerSource.original_bytes`는 키워드 전용 인자다. C의 `load_image`도
+  `original_bytes=data`로 전달하도록 수정해 위치 인자 차이를 피했다.
+- B 가우시안 뷰어에는 `processing_controls`, ROI 뷰어에는 추가로
+  `roi_controls`, `roi_summary`가 있다. C 뷰어에는 이 인자가 없다.
+- 반대로 B의 두 뷰어에는 이번 C의 `processing_record`, `stored_processing`이
+  없다. 따라서 어느 쪽 파일 하나를 선택해 덮어쓰는 방식으로 통합하면 안 된다.
+- GitHub의 B 앱은 기존 `render_case_records(project_id, session, source)`를
+  호출한다. C는 선택 인자를 추가했으므로 이 호출 자체는 유지되지만 처리 기록은
+  자동 전달되지 않는다. B의 세션 상태를 C가 직접 읽는 연결도 추가하지 않았다.
+
+### 라이브러리
+
+C와 A의 선언 의존성은 Python 3.12 이상, Streamlit 1.55.0과 Pillow 12.3.0이다.
+B에는 같은 Streamlit과 Pillow에 NumPy 2.2.6과 opencv-python-headless 4.12.0.88이
+추가된다. 직접 고정된 공통 라이브러리 버전은 일치한다.
+
+이번 C는 새 의존성을 추가하거나 `uv.lock`을 변경하지 않았다. 라이브러리 버전이
+같아도 함수 인자와 세션 상태가 다르면 동작이 호환되는 것은 아니다.
+합친 잠금 파일 해석과 실제 다중 브랜치 실행 시험은 수행하지 않았다.
+
+참고 코드:
+
+- [A viewer.py](https://github.com/jjert9070/PACS/blob/6c628f5d0ed89152b5016c2059aab8a36df71968/viewer.py)
+- [B 가우시안 viewer.py](https://github.com/jjert9070/PACS/blob/6e6e8d403c5feb782e64b11a9308bc241529c044/viewer.py)
+- [B ROI viewer.py](https://github.com/jjert9070/PACS/blob/c2387023282ca4f5f2da85933718dd4cad4ed144/viewer.py)
+- [B 의존성](https://github.com/jjert9070/PACS/blob/c2387023282ca4f5f2da85933718dd4cad4ed144/pyproject.toml)
