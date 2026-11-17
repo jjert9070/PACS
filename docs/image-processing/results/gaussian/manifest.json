@@ -1,7 +1,7 @@
 {
   "algorithm_id": "gaussian_blur",
   "algorithm_version": "1.0.0",
-  "python": "3.12.14",
+  "python": "3.12.16",
   "pillow": "12.3.0",
   "seed": 20261115,
   "noise_sigma": [
@@ -30,43 +30,43 @@
   "sources": [
     {
       "noise_sigma": 0,
-      "source_id": "6410f853f5960f40b83eecc059a125ae1d8b904d10e5c37e5e4287c166b65d10"
+      "source_id": "e82d3ec4e575f78dcd520b87cd285f216b648a30f85bcbf0a9e4ddce1d328792"
     },
     {
       "noise_sigma": 5,
-      "source_id": "8bbf1de730b2c4f6ba2558007cdae20de1b8b80d8d98602ab9e8c125aa922d28"
+      "source_id": "7547418b4034344517166f8b25fb55b85445aa360b1023c15749ea4df512c10c"
     },
     {
       "noise_sigma": 20,
-      "source_id": "f7a00ce4490fa5521a994f2f4311b766550d3a860b44f632c5ecb356ae8333e6"
+      "source_id": "ba6be0bdda92a54cea157f357f7e651db13b4e88c00257454b2a98c839066be8"
     },
     {
       "noise_sigma": 40,
-      "source_id": "41862455f1ba37b7dfd91fec8ac3d6054e4e7993e959249e70b8aa1ffd4e444c"
+      "source_id": "74ba6214ee64cf9c4cabe85b62872651fde6a2aaf567ae2659008993e78de393"
     }
   ],
   "output_sha256": {
-    "clean.png": "6410f853f5960f40b83eecc059a125ae1d8b904d10e5c37e5e4287c166b65d10",
-    "comparison.png": "2a1b86a8593332be09188db5f48219dad64954d5a4e3bd0754c5d6109b5f9985",
-    "noise-0-radius-0.png": "6410f853f5960f40b83eecc059a125ae1d8b904d10e5c37e5e4287c166b65d10",
-    "noise-0-radius-1.png": "5d89a439022b02608e3af08195f11304eef5a6cb5c992d0b2277109a9fc3d69d",
-    "noise-0-radius-2.png": "3c2cb782f86d3c96c1f74834fc123282eac7dbf7d014178e080bc2fa6cc0a5ab",
-    "noise-0-radius-4.png": "8ae24df4434e88027ec44d5a1cf96ac773198f1565926801455ba8f979881537",
-    "noise-0.png": "6410f853f5960f40b83eecc059a125ae1d8b904d10e5c37e5e4287c166b65d10",
-    "noise-20-radius-0.png": "f7a00ce4490fa5521a994f2f4311b766550d3a860b44f632c5ecb356ae8333e6",
-    "noise-20-radius-1.png": "225c10e55a1c72a8d67d6718a1893ac4a3600073b80d4653a0eff2526c560285",
-    "noise-20-radius-2.png": "fbcece4dcbf6c3bd052eac5672a1bbb968e93a173eecb6f045cda3f54f800603",
-    "noise-20-radius-4.png": "d464bb64dbe5101f64c11a1633af057c625f02628f3a99a3283d29fdaf0badf3",
-    "noise-20.png": "f7a00ce4490fa5521a994f2f4311b766550d3a860b44f632c5ecb356ae8333e6",
-    "noise-40-radius-0.png": "41862455f1ba37b7dfd91fec8ac3d6054e4e7993e959249e70b8aa1ffd4e444c",
-    "noise-40-radius-1.png": "61c9a1fda446638dd4d41b6211cb568b32dc7903ad2b3f68a623d2713bbb545c",
-    "noise-40-radius-2.png": "7901b6b321533fa04d7446b78cde8711ee00c837bfba4cdc36647554563650cc",
-    "noise-40-radius-4.png": "2254d9a25ccd222d1dbfc05a8d3427698e1461eb995d53f57d68a022e45bfb77",
-    "noise-40.png": "41862455f1ba37b7dfd91fec8ac3d6054e4e7993e959249e70b8aa1ffd4e444c",
-    "noise-5-radius-0.png": "8bbf1de730b2c4f6ba2558007cdae20de1b8b80d8d98602ab9e8c125aa922d28",
-    "noise-5-radius-1.png": "dce9f0d21b4e2f16c7e70667bc7c0db23ebc920d5c10c755639d4779a68aa443",
-    "noise-5-radius-2.png": "26ac072da42b7ba4dcae8a240ab83429b655f74a4747c5360ae1c860e1e92849",
-    "noise-5-radius-4.png": "d505dbd52a6b692321b4e6eee6f1557fb31cb617fd0a4c7e0c85eb26290315a6",
-    "noise-5.png": "8bbf1de730b2c4f6ba2558007cdae20de1b8b80d8d98602ab9e8c125aa922d28"
+    "clean.png": "e50a749d59a41f9c4255781b331d90fbaafa8b43c451d00a9a505de658bfe76f",
+    "comparison.png": "cd5445d862f5bffe375b7d73d90b9a1c3f4ce55f1c121d29d13c17d7efa58a9e",
+    "noise-0-radius-0.png": "e82d3ec4e575f78dcd520b87cd285f216b648a30f85bcbf0a9e4ddce1d328792",
+    "noise-0-radius-1.png": "f9d13be1b9caa8869d1163e7e3c4dfa2ec25afa4ea8ac7e17923df14f146e7a6",
+    "noise-0-radius-2.png": "9f7ccdfeb7870391302f2475fc05a94be9f73aedc36b990ed35724b58bb37ab4",
+    "noise-0-radius-4.png": "6d468c23b80be67c50162fac563690957ade5a26bab3826f6dc4e9ed2ff398cb",
+    "noise-0.png": "e82d3ec4e575f78dcd520b87cd285f216b648a30f85bcbf0a9e4ddce1d328792",
+    "noise-20-radius-0.png": "ba6be0bdda92a54cea157f357f7e651db13b4e88c00257454b2a98c839066be8",
+    "noise-20-radius-1.png": "c8d45a6a9a11a887a356149bdae60cffafcc67106b35321f9945ab8549a08262",
+    "noise-20-radius-2.png": "c54049ccaa61afe9246b9ccb8efc1a7d328047eb119981b76aa463cc36a2db57",
+    "noise-20-radius-4.png": "2fe4ec870994c5a615f1b3a1158ccef42a6b973d1fce451aabd302c6ef923ab8",
+    "noise-20.png": "ba6be0bdda92a54cea157f357f7e651db13b4e88c00257454b2a98c839066be8",
+    "noise-40-radius-0.png": "74ba6214ee64cf9c4cabe85b62872651fde6a2aaf567ae2659008993e78de393",
+    "noise-40-radius-1.png": "91fe6b501e09a9952309560f49afafd8ef378d26c15ac2d6811b62bea9f8a46e",
+    "noise-40-radius-2.png": "d7b1e851c31be39cf4adfdef8eecbc25259b5b0403204debe913a7ea45d4db30",
+    "noise-40-radius-4.png": "fec256a34795fb0a99175a6df364c729d5d5b1f1c334874685dd1862b2746e54",
+    "noise-40.png": "74ba6214ee64cf9c4cabe85b62872651fde6a2aaf567ae2659008993e78de393",
+    "noise-5-radius-0.png": "7547418b4034344517166f8b25fb55b85445aa360b1023c15749ea4df512c10c",
+    "noise-5-radius-1.png": "812ff6bfcf921ad13d269d33de96f804c91a63368a22db022c55200cb45d7468",
+    "noise-5-radius-2.png": "f7d1db6f9f50d87df88c841637a3306a420cc7c7200c85c85e06f6c56ef1a9ea",
+    "noise-5-radius-4.png": "445c349c3ab0181239584eb01b82e6fc2da4b6e5f5c62e38b381317206939171",
+    "noise-5.png": "7547418b4034344517166f8b25fb55b85445aa360b1023c15749ea4df512c10c"
   }
 }

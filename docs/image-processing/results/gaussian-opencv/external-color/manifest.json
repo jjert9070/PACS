@@ -1,0 +1,86 @@
+{
+  "algorithm_id": "gaussian_blur",
+  "algorithm_version": "2.0.0",
+  "python": "3.12.16",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "numpy": "2.2.6",
+  "opencv": "4.12.0",
+  "pillow": "12.3.0",
+  "random_generator": "numpy.random.Generator(PCG64)",
+  "seed": 20261115,
+  "noise_sigma": [
+    0,
+    5,
+    20,
+    40
+  ],
+  "noise_channels": "independent RGB",
+  "rounding_clipping": "float64 -> np.rint (ties to even) -> clip 0..255 -> uint8; PNG experiment only",
+  "radius_px": [
+    0,
+    1,
+    2,
+    4
+  ],
+  "kernel_sizes": [
+    1,
+    7,
+    13,
+    25
+  ],
+  "sigma_xy": "radius in original pixels; radius=0 independent copy",
+  "border": "BORDER_REFLECT_101",
+  "size": [
+    256,
+    256
+  ],
+  "experiment_type": "external",
+  "color_mode": "color",
+  "metric_space": "RGB RMSE; synthetic structure metrics use Pillow L",
+  "input_file": "Lenna.png",
+  "input_sha256": "7e497501a28bcf9a353ccadf6eb9216bf098ac32888fb542fb9bfe71d486761f",
+  "resize": "256x256 INTER_AREA; aspect ratio may change for external input",
+  "text_format": "UTF-8 without BOM; summary/manifest LF; CSV CRLF",
+  "sources": [
+    {
+      "noise_sigma": 0,
+      "source_id": "816bfeb46e1b3788894a395fa8957ee13360d47ae7fb569ab3262364dfc6f23e"
+    },
+    {
+      "noise_sigma": 5,
+      "source_id": "9937f701c88f4d2c09dbec8b494eb5113770faaad3918a98da0f4326eac62477"
+    },
+    {
+      "noise_sigma": 20,
+      "source_id": "ce6b865b573deeea2cf76fd418dc9c9b68c86d00dbbdcb6d25090785a00c47df"
+    },
+    {
+      "noise_sigma": 40,
+      "source_id": "9d7da28a18397a3d2d2f9d3e2f46da0d17470ba634be8f5014668816d5a97054"
+    }
+  ],
+  "output_sha256": {
+    "clean.png": "816bfeb46e1b3788894a395fa8957ee13360d47ae7fb569ab3262364dfc6f23e",
+    "comparison.png": "5d528f9fda703d2eb6b170350f89a9a5f04f1a876a4999af7193162f92a7b7ca",
+    "noise-0-radius-0.png": "816bfeb46e1b3788894a395fa8957ee13360d47ae7fb569ab3262364dfc6f23e",
+    "noise-0-radius-1.png": "c1763c434cf2f39d3a5a762dcb37e83c7f36e5e560e4425ad09b0042bc4022e3",
+    "noise-0-radius-2.png": "da0d990149ada9a53709b57849b9271a67732feab7db1b26ff209377ad9fab8d",
+    "noise-0-radius-4.png": "3587375d04b01b640be10d9b1d05177bd07ac16d7ba2628d8f757b02bfcc245e",
+    "noise-0.png": "816bfeb46e1b3788894a395fa8957ee13360d47ae7fb569ab3262364dfc6f23e",
+    "noise-20-radius-0.png": "ce6b865b573deeea2cf76fd418dc9c9b68c86d00dbbdcb6d25090785a00c47df",
+    "noise-20-radius-1.png": "cd539eacec7245f9c40892d425904c233614b03a1a5348ef5eb7470637054dd0",
+    "noise-20-radius-2.png": "a8aabc9d9854092c7b43dc879dcce0a8333c330514c0cf174acda5ff3b621c68",
+    "noise-20-radius-4.png": "3d498e5e0d21e5553139ee8cb8469afa0d50a8ef19836276e63e5ca02465537c",
+    "noise-20.png": "ce6b865b573deeea2cf76fd418dc9c9b68c86d00dbbdcb6d25090785a00c47df",
+    "noise-40-radius-0.png": "9d7da28a18397a3d2d2f9d3e2f46da0d17470ba634be8f5014668816d5a97054",
+    "noise-40-radius-1.png": "18f2f7068f1ffb255f85ed5e878b51043f109393cda6d0b42449440add893c3b",
+    "noise-40-radius-2.png": "8a2de514ba163e424aac7f55f7735fce67f3f25bfb35ccee1cbdc176ba91c57e",
+    "noise-40-radius-4.png": "9616bdbaabfcc085795c54c2f1698374b1ca4f6297354e1418b1cf273980d48d",
+    "noise-40.png": "9d7da28a18397a3d2d2f9d3e2f46da0d17470ba634be8f5014668816d5a97054",
+    "noise-5-radius-0.png": "9937f701c88f4d2c09dbec8b494eb5113770faaad3918a98da0f4326eac62477",
+    "noise-5-radius-1.png": "9b86aa925ff49f2101451896a18553a9054b6e424bf515412ebc6800b102d2ea",
+    "noise-5-radius-2.png": "64cd78ba5859daf154c495e3d5ab628a9280e0b156fc1090b5fc37da10ddb93d",
+    "noise-5-radius-4.png": "eb76956a5d2dda4ba0c80279311f0a21abed0da553cd445f2bcd3e8076410236",
+    "noise-5.png": "9937f701c88f4d2c09dbec8b494eb5113770faaad3918a98da0f4326eac62477"
+  }
+}
