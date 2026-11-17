@@ -48,7 +48,7 @@ class GaussianWebTests(unittest.TestCase):
         self.apply(app, 0.0)
         self.assertEqual(app.session_state[PREFIX + "result"].tobytes(), app.session_state["test_original"])
         self.apply(app, 20.0)
-        self.assertEqual(app.session_state[PREFIX + "applied"]["radius"], 20)
+        self.assertEqual(app.session_state[PREFIX + "applied"]["parameters"], {"radius": 20.0})
         self.assertFalse(app.error)
 
     def test_algorithm_selection_hides_settings_and_discards_result(self):
@@ -73,7 +73,7 @@ class GaussianWebTests(unittest.TestCase):
             next(button for button in app.button if button.label == "보기 초기화").click().run()
             self.assertEqual(processing.call_count, 1)
         self.assertEqual(app.slider(key="viewer_zoom").value, 1)
-        self.assertEqual(app.session_state[PREFIX + "applied"]["radius"], 2)
+        self.assertEqual(app.session_state[PREFIX + "applied"]["parameters"], {"radius": 2.0})
         self.assertTrue(any("설정이 변경" in text.value for text in app.info))
 
     def test_failure_discards_old_result_and_can_retry(self):
