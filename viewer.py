@@ -22,6 +22,7 @@ VIEW_DEFAULTS = {
     "viewer_flip_vertical": False,
 }
 
+# Pillow names rotation constants by their counterclockwise angles.
 CLOCKWISE_ROTATION = (
     None, Image.Transpose.ROTATE_270, Image.Transpose.ROTATE_180, Image.Transpose.ROTATE_90
 )
@@ -38,7 +39,7 @@ class ViewerSource:
     file_format: str
     byte_count: int
     image: Image.Image
-    original_bytes: bytes | None = field(default=None, repr=False, kw_only=True)
+    original_bytes: bytes = field(default=b"", repr=False, kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -56,9 +57,9 @@ class ViewTransform:
         if rotation is not None:
             preview = preview.transpose(rotation)
         if self.flip_horizontal:
-            preview = ImageOps.mirror(preview)
+            preview = preview.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
         if self.flip_vertical:
-            preview = ImageOps.flip(preview)
+            preview = preview.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
         return preview
 
 
@@ -195,7 +196,7 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
         st.caption("세션에서만 사용 · 영구 저장 전")
         st.caption("픽셀 단위 표시 · 실제 길이 측정 미지원")
     with canvas:
-        st.button("보기 초기화", on_click=reset_view)
+        st.button("보기 초기화", key="viewer_reset", on_click=reset_view)
         controls = st.columns(3)
     with controls[0]:
         zoom = st.slider("확대 배율", 1.0, 4.0, value=None, step=0.25, key="viewer_zoom", format="%.2fx")
@@ -214,7 +215,10 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
             flip_vertical = st.toggle("상하 반전", key="viewer_flip_vertical")
         turns = st.session_state.viewer_turns
         transform = ViewTransform(box, turns, flip_horizontal, flip_vertical)
-        st.caption(f"원본 표시 영역: x=[{box[0]}, {box[2]}), y=[{box[1]}, {box[3]}) px · 회전 {turns * 90}°")
+        st.caption(f"원본 표시 영역: x=[{box[0]}, {box[2]}), y=[{box[1]}, {box[3]}) px")
+        horizontal_status = "켜짐" if flip_horizontal else "꺼짐"
+        vertical_status = "켜짐" if flip_vertical else "꺼짐"
+        st.caption(f"두 창 공통 보기 · 회전 {turns * 90}° · 좌우 반전 {horizontal_status} · 상하 반전 {vertical_status}")
         original, processed = st.columns(2)
     # Limit only the display raster, never the processor's original-size input.
     def display(image: Image.Image) -> None:

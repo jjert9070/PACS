@@ -85,7 +85,9 @@ class ImageInputTests(unittest.TestCase):
             self.assertEqual(source.file_format, fmt)
             self.assertEqual(source.byte_count, len(data))
             self.assertEqual(source.original_bytes, data)
-            self.assertEqual(source.source_id, load_image(name, data).source_id)
+            renamed = load_image(f"renamed.{fmt.lower()}", data)
+            self.assertNotEqual(source.name, renamed.name)
+            self.assertEqual(source.source_id, renamed.source_id)
 
     def test_rejects_corrupt_unsupported_empty_and_disguised_files(self):
         for name, data in [("a.png", b"broken"), ("a.png", b""),
@@ -118,6 +120,7 @@ class ImageInputTests(unittest.TestCase):
 
 class ViewTransformTests(unittest.TestCase):
     def test_crop_then_clockwise_rotation_and_display_axis_flips(self):
+        # Source rows are [1, 2, 3, 4] and [5, 6, 7, 8].
         source = Image.frombytes("L", (4, 2), bytes(range(1, 9)))
         box = (1, 0, 4, 2)
         rotated = ViewTransform(box, turns=1).apply(source)
@@ -154,7 +157,7 @@ class ViewerScreenTests(unittest.TestCase):
         self.assertFalse(app.warning)
         app.slider(key="viewer_zoom").set_value(2.0).run()
         self.assertTrue(any("x=[160, 480)" in item.value for item in app.caption))
-        app.button[0].click().run()
+        app.button(key="viewer_reset").click().run()
         self.assertEqual(app.slider(key="viewer_zoom").value, 1.0)
         app.slider(key="viewer_zoom").set_value(3.0).run()
         app.radio(key="viewer_mode").set_value("파일 가져오기").run()
@@ -178,10 +181,14 @@ class ViewerScreenTests(unittest.TestCase):
             self.assertFalse(app.toggle(key=key).value)
             app.toggle(key=key).set_value(True).run()
         app.button(key="viewer_rotate").click().run()
-        app.button[0].click().run()
+        self.assertTrue(any("회전 90° · 좌우 반전 켜짐 · 상하 반전 켜짐" in item.value
+                            for item in app.caption))
+        app.button(key="viewer_reset").click().run()
         self.assertEqual(app.session_state["viewer_turns"], 0)
         self.assertFalse(app.toggle(key=horizontal).value)
         self.assertFalse(app.toggle(key=vertical).value)
+        self.assertTrue(any("회전 0° · 좌우 반전 꺼짐 · 상하 반전 꺼짐" in item.value
+                            for item in app.caption))
         app.button(key="viewer_rotate").click().run()
         app.toggle(key=horizontal).set_value(True).run()
         app.radio(key="viewer_mode").set_value("파일 가져오기").run()
