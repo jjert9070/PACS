@@ -81,7 +81,7 @@ Firebase 모의 로그인 및 검증 전용 저장 원본 선택/실패 주입�
 | 합성 예시, σ=2 적용 | 원본과 결과가 같은 높이에서 시작, 캡션은 결과 아래 | [08](web-checks/08-aligned-synthetic-sigma2.jpg) |
 | Lenna.png 파일 업로드, σ=2 적용 | 같은 정렬, 영상 ID `7e497501a28b` | [09](web-checks/09-aligned-lenna-upload-sigma2.jpg) |
 
-`viewer.py`는 A 담당 파일이다. 이번 변경은 결과 열의 이미지 표시 위치만 바꾸며 확대, 이동과 보기 초기화 계산은 바꾸지 않았다. A의 `feature/viewer-controls`(#8)와 병합할 때 이 부분이 충돌할 수 있다.
+`viewer.py`는 A 담당 파일이다. 이번 변경은 결과 열의 이미지 표시 위치만 바꾸며 확대, 이동과 보기 초기화 계산은 바꾸지 않았다. A의 `feature/viewer-controls`(#8)와 `git merge-tree`로 시험 병합한 결과, 이 변경은 A의 `display()` 수정(`transform.apply`)과 자동으로 합쳐진다. 남은 `viewer.py` 충돌 2곳(`original_bytes` 정의와 `ViewerSource` 반환)은 이번 변경 전에도 있던 것이며, #8 리뷰에서 합의하기로 한 내용이다.
 
 통합 기준은 `intergrationOfBC`이며 이 PR도 해당 브랜치를 대상으로 한다.
 기존 작업 폴더의 수정된 실험 산출물은 건드리지 않도록 별도 worktree에서 작업했다.
