@@ -1,5 +1,7 @@
 """Explicit Gaussian application with session-only results for the current source."""
 
+import logging
+
 import streamlit as st
 from PIL import Image
 
@@ -12,6 +14,7 @@ from image_processing import (
 from viewer import ProcessingPending, ViewerSource
 
 PREFIX = "viewer_processing_"
+logger = logging.getLogger(__name__)
 
 
 def render_gaussian_controls(source: ViewerSource) -> None:
@@ -57,6 +60,12 @@ def process_gaussian(image: Image.Image) -> Image.Image:
             if not isinstance(result, Image.Image) or result.mode != "RGB" or result.size != image.size:
                 raise ValueError("Invalid processing result")
         except Exception:
+            # The screen shows only a generic failure; keep the cause for developers.
+            # Log the short source ID and setting, never pixel data or file bytes.
+            logger.exception(
+                "Gaussian processing failed: source_id=%s radius=%r",
+                str(request.get("source_id", ""))[:12], request.get("radius"),
+            )
             st.session_state.pop(PREFIX + "result", None)
             st.session_state.pop(PREFIX + "applied", None)
             st.session_state[PREFIX + "error"] = True

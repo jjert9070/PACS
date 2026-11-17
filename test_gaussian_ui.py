@@ -128,5 +128,106 @@ class GaussianWebTests(unittest.TestCase):
         self.assertEqual(app.session_state["test_original"], second.image.tobytes())
 
 
+STORED_SCRIPT = '''import streamlit as st
+from viewer import render_viewer
+from gaussian_ui import process_gaussian, render_gaussian_controls
+render_viewer(processor=process_gaussian, processing_controls=render_gaussian_controls,
+              stored_source=st.session_state['test_stored_source'],
+              stored_result=st.session_state['test_stored_result'])
+'''
+STORED_NOTICE = "이 케이스에 저장된 처리 결과입니다"
+
+
+def column_items(app, title):
+    """Child kinds of the viewer column headed by `title`, in screen order."""
+    for column in app.columns:
+        children = list(column.children.values())
+        if children and getattr(children[0], "value", None) == title:
+            kinds = []
+            for child in children[1:]:
+                nested = [getattr(item, "type", "") for item in getattr(child, "children", {}).values()]
+                kinds.append("imgs" if child.type == "imgs" or "imgs" in nested else child.type)
+            return kinds
+    raise AssertionError(f"column {title!r} not found")
+
+
+class GaussianReviewFollowUpTests(unittest.TestCase):
+    """PR #6 review: aligned images, logged failure cause, stored-result states."""
+
+    def stored_app(self):
+        source = load_image("stored.png", sample_image_bytes())
+        # A visibly different saved result so it cannot be confused with a new one.
+        stored_result = Image.new("RGB", source.image.size, (255, 0, 255))
+        app = AppTest.from_string(STORED_SCRIPT, default_timeout=15)
+        app.session_state["test_stored_source"] = source
+        app.session_state["test_stored_result"] = stored_result
+        app.run()
+        app.radio(key="viewer_mode").set_value("로컬 저장 영상").run()
+        return app, source, stored_result
+
+    def apply(self, app, radius):
+        app.number_input(key=PREFIX + "radius").set_value(radius).run()
+        app.button(key=PREFIX + "apply").click().run()
+
+    def test_result_image_starts_at_same_height_as_original(self):
+        app = AppTest.from_string(SCRIPT, default_timeout=15).run()
+        app.radio(key="viewer_mode").set_value("합성 예시").run()
+        self.apply(app, 2.0)
+        self.assertEqual(column_items(app, "**원본 영상**")[0], "imgs")
+        processed = column_items(app, "**처리 결과**")
+        # Image directly under the title; algorithm/version/σ caption below it.
+        self.assertEqual(processed[0], "imgs")
+        self.assertIn("caption", processed[1:])
+        self.assertTrue(any("실제 적용 σ=2 px" in text.value for text in app.caption))
+
+    def test_failure_cause_is_logged_and_screen_stays_generic(self):
+        app = AppTest.from_string(SCRIPT, default_timeout=15).run()
+        app.radio(key="viewer_mode").set_value("합성 예시").run()
+        with self.assertLogs("gaussian_ui", level="ERROR") as logs:
+            with patch("gaussian_ui.gaussian_blur", side_effect=RuntimeError("test failure")):
+                self.apply(app, 3.0)
+        record = logs.records[0]
+        self.assertIn("Gaussian processing failed", record.getMessage())
+        self.assertIn("radius=3.0", record.getMessage())
+        self.assertIsNotNone(record.exc_info)
+        self.assertIsInstance(record.exc_info[1], RuntimeError)
+        self.assertEqual(str(record.exc_info[1]), "test failure")
+        self.assertTrue(app.error)
+        self.assertNotIn("test failure", " ".join(error.value for error in app.error))
+        self.assertNotIn(PREFIX + "result", app.session_state)
+
+    def test_stored_result_before_apply_is_labelled_as_stored(self):
+        app, _, _ = self.stored_app()
+        self.assertTrue(any(STORED_NOTICE in text.value for text in app.caption))
+        self.assertFalse(any("실제 적용" in text.value for text in app.caption))
+        self.assertTrue(any("가우시안 적용을 누르세요" in text.value for text in app.info))
+        self.assertEqual(column_items(app, "**처리 결과**")[0], "imgs")
+        self.assertNotIn(PREFIX + "result", app.session_state)
+        self.assertFalse(app.error)
+
+    def test_successful_apply_replaces_stored_result_with_new_settings(self):
+        app, source, stored_result = self.stored_app()
+        self.apply(app, 2.0)
+        result = app.session_state[PREFIX + "result"]
+        self.assertEqual(result.tobytes(), gaussian_blur(source.image, 2).tobytes())
+        self.assertNotEqual(result.tobytes(), stored_result.tobytes())
+        self.assertFalse(any(STORED_NOTICE in text.value for text in app.caption))
+        self.assertTrue(any("실제 적용 σ=2 px" in text.value for text in app.caption))
+        self.assertEqual(app.session_state[PREFIX + "applied"]["source_id"], source.source_id)
+        self.assertFalse(app.error)
+
+    def test_failed_apply_does_not_present_stored_result_as_success(self):
+        app, source, _ = self.stored_app()
+        with patch("gaussian_ui.gaussian_blur", side_effect=RuntimeError("test failure")):
+            self.apply(app, 2.0)
+        self.assertTrue(app.error)
+        self.assertFalse(any(STORED_NOTICE in text.value for text in app.caption))
+        self.assertFalse(any("실제 적용" in text.value for text in app.caption))
+        self.assertNotIn("imgs", column_items(app, "**처리 결과**"))
+        self.assertEqual(column_items(app, "**원본 영상**")[0], "imgs")
+        self.assertNotIn(PREFIX + "result", app.session_state)
+        self.assertEqual(app.session_state["test_stored_source"].image.tobytes(), source.image.tobytes())
+
+
 if __name__ == "__main__":
     unittest.main()
