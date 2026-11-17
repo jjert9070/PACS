@@ -58,8 +58,29 @@ def _describe(algorithm_id: str, parameters: dict) -> str:
 
 def render_gaussian_controls(source: ViewerSource) -> None:
     st.markdown("#### 영상 처리")
+    algorithms = [NONE, GAUSSIAN, GAMMA, THRESHOLD]
+    restored = st.session_state.pop("viewer_restore_controls", None)
+    if restored and restored["source_id"] == source.source_id:
+        st.session_state[PREFIX + "algorithm"] = GAUSSIAN
+        for name, value in (("radius", 1.0), ("gamma", 1.0), ("threshold", 128)):
+            st.session_state[PREFIX + name] = value
+        setting = {
+            GAUSSIAN_ALGORITHM_ID: ("radius", 0, MAX_GAUSSIAN_RADIUS),
+            GAMMA_ALGORITHM_ID: ("gamma", MIN_GAMMA, MAX_GAMMA),
+            THRESHOLD_ALGORITHM_ID: ("threshold", MIN_THRESHOLD, MAX_THRESHOLD),
+        }.get(restored["algorithm_id"])
+        if setting is not None:
+            name, lower, upper = setting
+            value = restored["parameters"].get(name)
+            if (type(value) in (int, float) and lower <= value <= upper
+                    and (name != "threshold" or type(value) is int)):
+                st.session_state[PREFIX + "algorithm"] = ALGORITHM_LABELS[restored["algorithm_id"]]
+                st.session_state[PREFIX + name] = int(value) if name == "threshold" else float(value)
+            else:
+                st.warning("저장된 설정을 현재 처리 도구에 적용할 수 없습니다. 새 설정을 선택하세요.")
     algorithm = st.selectbox(
-        "처리 알고리즘", [NONE, GAUSSIAN, GAMMA, THRESHOLD], index=1,
+        "처리 알고리즘", algorithms,
+        index=0 if PREFIX + "algorithm" in st.session_state else 1,
         key=PREFIX + "algorithm",
     )
     # A result made by another algorithm must not stay on screen as the new choice.
@@ -75,7 +96,7 @@ def render_gaussian_controls(source: ViewerSource) -> None:
             "감마 (γ)",
             min_value=MIN_GAMMA,
             max_value=MAX_GAMMA,
-            value=1.0,
+            value="min" if PREFIX + "gamma" in st.session_state else 1.0,
             step=0.1,
             format="%.2f",
             key=PREFIX + "gamma",
@@ -87,7 +108,7 @@ def render_gaussian_controls(source: ViewerSource) -> None:
             "임계값 (L 밝기, 정수)",
             min_value=MIN_THRESHOLD,
             max_value=MAX_THRESHOLD,
-            value=128,
+            value="min" if PREFIX + "threshold" in st.session_state else 128,
             step=1,
             key=PREFIX + "threshold",
         )
@@ -98,7 +119,7 @@ def render_gaussian_controls(source: ViewerSource) -> None:
             "가우시안 강도 (σ, px)",
             min_value=0.0,
             max_value=MAX_GAUSSIAN_RADIUS,
-            value=1.0,
+            value="min" if PREFIX + "radius" in st.session_state else 1.0,
             step=0.5,
             key=PREFIX + "radius",
         )

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 import warnings
 
-from PIL import Image, ImageDraw, ImageDraw, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 import streamlit as st
 
 
@@ -121,10 +121,11 @@ def render_viewer(
 ) -> ViewerSource | None:
     """Processor receives a COPY of the RGB source and must return the same size.
 
-    No processing result or image is persisted to Firebase in this starter.
+    This view does not write storage; the app submits its displayed record explicitly.
     The callback is run against the current image on each Streamlit rerun.
     """
     st.session_state.pop("viewer_displayed_processing", None)
+    st.session_state.pop("viewer_displayed_result", None)
     st.session_state.pop("viewer_processing_contract_error", None)
     st.subheader("PACS 뷰어")
     st.caption("교육용 영상 검토 · 원본을 보존하고 같은 위치의 처리 결과를 비교합니다.")
@@ -221,7 +222,7 @@ def render_viewer(
         original, processed = st.columns(2)
     # Limit only the display raster, never the processor's original-size input.
     def display(image: Image.Image) -> None:
-        bounds = roi_bounds if roi_bounds is not None else (record.roi if record else None)
+        bounds = roi_bounds if roi_controls is not None else (record.roi if record else None)
         marked = image
         if bounds is not None:
             # PIL endpoints are inclusive; stored and active ROI ends are exclusive.
@@ -243,7 +244,7 @@ def render_viewer(
         # Reserve the image slot first: processor captions/notices then render
         # below the result, so both images start at the same height.
         image_slot = st.container()
-        if record is not None:
+        if record is not None and (processor is None or processing_record is not None):
             with image_slot:
                 display(record.result)
             displayed_result = record.result
@@ -266,16 +267,25 @@ def render_viewer(
                     display(result)
                 displayed_result = result
             except ProcessingPending as pending:
-                if mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
+                if record is not None:
+                    with image_slot:
+                        display(record.result)
+                    displayed_result = record.result
+                    show_processing(record, saved=saved)
+                    st.session_state["viewer_displayed_processing"] = record
+                elif mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
                     with image_slot:
                         display(stored_result)
                     displayed_result = stored_result
-                    st.caption("이 케이스에 저장된 처리 결과입니다. 새 가우시안 적용 결과와 구분하세요.")
+                    st.caption("이 케이스에 저장된 처리 결과입니다. 새로 적용한 처리 결과와 구분하세요.")
                 st.info(str(pending))
             except Exception:
-                st.error("영상 처리에 실패했습니다. 원본은 유지됩니다. 처리 입력과 결과 크기를 확인하세요.")
+                message = "영상 처리에 실패했습니다. 원본은 유지됩니다. 처리 입력과 결과 크기를 확인하세요."
+                st.session_state["viewer_processing_contract_error"] = message
+                st.error(message)
     if roi_summary is not None:
         with canvas:
             roi_summary(source, displayed_result, roi_bounds)
+    st.session_state["viewer_displayed_result"] = displayed_result
     st.caption("현재 보기는 세션 상태입니다. 원본 파일 저장과 케이스 연결 상태는 아래에서 별도로 확인합니다.")
     return source

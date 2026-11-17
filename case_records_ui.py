@@ -1,5 +1,6 @@
 """Owner-only case records using the explicitly enabled development file store."""
 
+from dataclasses import replace
 from uuid import uuid4
 
 import streamlit as st
@@ -29,7 +30,9 @@ def _error(error: Exception) -> None:
 def _dirty() -> bool:
     initial = st.session_state.get("case_record_initial", ("", "", ""))
     current = tuple(st.session_state.get("case_record_" + key, "") for key in ("title", "note", "provenance"))
-    return current != initial or st.session_state.get("case_record_pending") is not None
+    return (current != initial or st.session_state.get("case_record_pending") is not None
+            or st.session_state.get("case_record_processing_current")
+            != st.session_state.get("case_record_processing_initial"))
 
 
 def _switch(project_id: str, session: Session, case_id: str | None) -> None:
@@ -53,12 +56,18 @@ def _switch(project_id: str, session: Session, case_id: str | None) -> None:
     for key in ("title", "note", "provenance"):
         st.session_state["case_record_" + key] = values[key]
     st.session_state["case_record_initial"] = tuple(values[key] for key in ("title", "note", "provenance"))
+    processing = restored[1] if restored else None
+    st.session_state["case_record_processing_initial"] = (
+        replace(processing, roi=tuple(processing.roi) if processing.roi is not None else None)
+        if processing is not None else None
+    )
     for key in ("case_record_pending", "case_record_history", "case_record_error", "case_record_saved"):
         st.session_state.pop(key, None)
     st.session_state["case_record_discard"] = False
     # Clear even when switching between two cases with identical source bytes.
     for key in list(st.session_state):
-        if key.startswith(("viewer_current_", "viewer_displayed_", "viewer_stored_")):
+        if key.startswith(("viewer_current_", "viewer_displayed_", "viewer_stored_",
+                           "viewer_processing_", "viewer_roi_", "viewer_restore_")):
             st.session_state.pop(key, None)
     reset_view()
     if restored:
@@ -67,6 +76,14 @@ def _switch(project_id: str, session: Session, case_id: str | None) -> None:
         st.session_state["viewer_stored_owner"] = session.uid
         st.session_state["viewer_stored_result"] = processing.result if processing else None
         st.session_state["viewer_stored_processing"] = processing
+        st.session_state["viewer_restore_controls"] = {
+            "source_id": source.source_id,
+            "algorithm_id": processing.algorithm_id if processing else "",
+            "parameters": processing.parameters if processing else {},
+        }
+        st.session_state["viewer_restore_roi"] = {
+            "source_id": source.source_id, "bounds": processing.roi if processing else None,
+        }
         st.session_state["viewer_mode"] = "로컬 저장 영상"
 
 
@@ -75,6 +92,11 @@ def render_case_records(
     processing: ProcessingRecord | None = None,
     processing_error: str | None = None,
 ) -> None:
+    # Compare applied records on a switch; ROI lists and tuples mean the same bounds.
+    st.session_state["case_record_processing_current"] = (
+        replace(processing, roi=tuple(processing.roi) if processing.roi is not None else None)
+        if processing is not None else None
+    )
     st.subheader("원본과 연결된 내 케이스")
     st.caption("원본은 개발용 PC에, 제목과 메모, 출처와 버전은 Firestore에 저장합니다. 검토 요청과 역할 배정은 이번 범위에서 제외했습니다.")
     if not st.checkbox("케이스용 개발 저장소 사용", key="case_record_enabled"):
@@ -152,6 +174,7 @@ def render_case_records(
             st.session_state["case_record_saved"] = pending["case_id"]
             st.session_state.pop("case_record_pending", None)
             st.session_state["case_record_initial"] = (pending["title"], pending["note"], pending["provenance"])
+            st.session_state["case_record_processing_initial"] = pending["processing"]
     saved = st.session_state.get("case_record_saved")
     if saved:
         st.success("개발용 원본 파일과 Firestore 케이스를 저장했습니다. 계속 수정하려면 저장본을 다시 여세요.")

@@ -1,12 +1,39 @@
 """C's storage contract; independent of processing algorithms and their UI."""
 
 from copy import deepcopy
+from dataclasses import replace
 import json
 
 import streamlit as st
 
 from case_records import ProcessingRecord, _processing_json
 from viewer import ViewerSource
+
+
+def processing_from_state(source: ViewerSource | None, state) -> ProcessingRecord | None:
+    """Export the displayed result with applied settings, never draft inputs."""
+    if source is None:
+        return None
+    record = state.get("viewer_displayed_processing")
+    result = state.get("viewer_displayed_result")
+    applied = state.get("viewer_processing_applied")
+    bounds = state.get("viewer_roi_bounds")
+    statistics = state.get("viewer_roi_statistics", {}) if bounds is not None else {}
+    if (applied is not None and result is not None
+            and result is state.get("viewer_processing_result")):
+        record = ProcessingRecord(
+            applied["source_id"], applied["algorithm_id"], applied["algorithm_version"],
+            deepcopy(applied["parameters"]), result,
+            tuple(bounds) if bounds is not None else None, deepcopy(statistics),
+        )
+    elif record is not None:
+        if bounds is not None and tuple(bounds) != tuple(record.roi or ()):
+            record = replace(record, roi=tuple(bounds), statistics=deepcopy(statistics))
+        elif state.get("viewer_roi_cleared"):
+            record = replace(record, roi=None, statistics={})
+    if record is not None and state.get("viewer_roi_error"):
+        raise ValueError("ROI 입력을 수정하거나 ROI를 해제한 뒤 저장하세요.")
+    return validate_processing(source, record)
 
 
 def validate_processing(source: ViewerSource, record: ProcessingRecord | None) -> ProcessingRecord | None:
@@ -58,5 +85,6 @@ def freeze_processing(source: ViewerSource, record: ProcessingRecord | None) -> 
 def show_processing(record: ProcessingRecord, *, saved: bool) -> None:
     st.caption("저장 당시 처리 기록" if saved else "현재 세션의 처리 기록 (저장 전)")
     st.text(f"{record.algorithm_id} / 버전 {record.algorithm_version}")
-    st.json({"실제 적용 설정": record.parameters, "원본 해시": record.source_id,
-             "ROI": record.roi, "저장된 통계" if saved else "현재 통계": record.statistics})
+    with st.expander("처리 기록 상세", expanded=False):
+        st.json({"실제 적용 설정": record.parameters, "원본 해시": record.source_id,
+                 "ROI": record.roi, "저장된 통계" if saved else "현재 통계": record.statistics})

@@ -7,6 +7,7 @@ from viewer import clear_viewer, render_viewer
 from case_ui import clear_cases, render_cases
 from local_storage_ui import render_local_storage
 from case_records_ui import render_case_records
+from case_processing import processing_from_state
 from gaussian_ui import process_gaussian, render_gaussian_controls
 from roi_ui import render_roi_controls, render_roi_statistics
 
@@ -83,11 +84,20 @@ def main() -> None:
                            processing_record=st.session_state.get("viewer_current_processing"),
                            stored_processing=st.session_state.get("viewer_stored_processing") if stored_source else None)
 
+    try:
+        processing = processing_from_state(source, st.session_state)
+    except (ValueError, KeyError, TypeError) as error:
+        processing = None
+        st.session_state["viewer_processing_contract_error"] = str(error)
+    else:
+        if processing is not None:
+            st.session_state["viewer_displayed_processing"] = processing
+
     with st.expander("케이스 등록과 다시 열기, 변경 이력"):
         try:
             render_case_records(
                 project_id, session, source,
-                processing=st.session_state.get("viewer_displayed_processing"),
+                processing=processing,
                 processing_error=st.session_state.get("viewer_processing_contract_error"),
             )
         except FirebaseRequestError:

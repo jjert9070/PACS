@@ -15,13 +15,26 @@ def render_roi_controls(source: ViewerSource):
     st.caption(f"0 ≤ left < right ≤ {width}, 0 ≤ top < bottom ≤ {height}")
     # Source-specific widget keys prevent old draft coordinates surviving a swap.
     widget_key = PREFIX + source.source_id + "_"
+    restored = st.session_state.pop("viewer_restore_roi", None)
+    if restored and restored["source_id"] == source.source_id:
+        bounds = (0, 0, width, height)
+        if restored["bounds"] is not None:
+            bounds = validate_roi(restored["bounds"], source.image.size)
+            st.session_state[PREFIX + "bounds"] = bounds
+        for name, value in zip(("left", "top", "right", "bottom"), bounds):
+            st.session_state[widget_key + name] = value
     with st.form(widget_key + "form"):
-        left = st.number_input("ROI left", value=0, step=1, key=widget_key + "left")
-        top = st.number_input("ROI top", value=0, step=1, key=widget_key + "top")
-        right = st.number_input("ROI right (제외)", value=width, step=1, key=widget_key + "right")
-        bottom = st.number_input("ROI bottom (제외)", value=height, step=1, key=widget_key + "bottom")
+        left = st.number_input("ROI left", value="min" if widget_key + "left" in st.session_state else 0,
+                               step=1, key=widget_key + "left")
+        top = st.number_input("ROI top", value="min" if widget_key + "top" in st.session_state else 0,
+                              step=1, key=widget_key + "top")
+        right = st.number_input("ROI right (제외)", value="min" if widget_key + "right" in st.session_state else width,
+                                step=1, key=widget_key + "right")
+        bottom = st.number_input("ROI bottom (제외)", value="min" if widget_key + "bottom" in st.session_state else height,
+                                 step=1, key=widget_key + "bottom")
         submitted = st.form_submit_button("ROI 적용")
     if submitted:
+        st.session_state[PREFIX + "cleared"] = False
         st.session_state.pop(PREFIX + "bounds", None)
         st.session_state.pop(PREFIX + "statistics", None)
         try:
@@ -32,6 +45,7 @@ def render_roi_controls(source: ViewerSource):
             st.session_state[PREFIX + "bounds"] = bounds
             st.session_state.pop(PREFIX + "error", None)
     if st.button("ROI 해제", key=PREFIX + "clear"):
+        st.session_state[PREFIX + "cleared"] = True
         for name in ("bounds", "statistics", "error"):
             st.session_state.pop(PREFIX + name, None)
     if st.session_state.get(PREFIX + "error"):
