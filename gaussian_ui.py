@@ -1,16 +1,23 @@
-"""Explicit processing (Gaussian, threshold) with session-only results for the current source."""
+"""Explicit processing (Gaussian, gamma, threshold) with session-only results for the current source."""
+
+import logging
 
 import streamlit as st
 from PIL import Image
 
 from image_processing import (
+    GAMMA_ALGORITHM_ID,
+    GAMMA_ALGORITHM_VERSION,
     GAUSSIAN_ALGORITHM_ID,
     GAUSSIAN_ALGORITHM_VERSION,
+    MAX_GAMMA,
     MAX_GAUSSIAN_RADIUS,
     MAX_THRESHOLD,
+    MIN_GAMMA,
     MIN_THRESHOLD,
     THRESHOLD_ALGORITHM_ID,
     THRESHOLD_ALGORITHM_VERSION,
+    gamma_correction,
     gaussian_blur,
     threshold_segmentation,
 )
@@ -19,10 +26,21 @@ from viewer import ProcessingPending, ViewerSource
 PREFIX = "viewer_processing_"
 NONE = "선택 안 함"
 GAUSSIAN = "가우시안"
+GAMMA = "감마 보정"
 THRESHOLD = "임계값 분할"
-ALGORITHM_IDS = {GAUSSIAN: GAUSSIAN_ALGORITHM_ID, THRESHOLD: THRESHOLD_ALGORITHM_ID}
+ALGORITHM_IDS = {
+    GAUSSIAN: GAUSSIAN_ALGORITHM_ID,
+    GAMMA: GAMMA_ALGORITHM_ID,
+    THRESHOLD: THRESHOLD_ALGORITHM_ID,
+}
 ALGORITHM_LABELS = {value: key for key, value in ALGORITHM_IDS.items()}
+LOG_NAMES = {
+    GAUSSIAN_ALGORITHM_ID: "Gaussian",
+    GAMMA_ALGORITHM_ID: "Gamma",
+    THRESHOLD_ALGORITHM_ID: "Threshold",
+}
 STATE_NAMES = ("result", "applied", "request", "error")
+logger = logging.getLogger(__name__)
 
 
 def _clear_processing() -> None:
@@ -31,6 +49,8 @@ def _clear_processing() -> None:
 
 
 def _describe(algorithm_id: str, parameters: dict) -> str:
+    if algorithm_id == GAMMA_ALGORITHM_ID:
+        return f"γ={parameters['gamma']:g}"
     if algorithm_id == THRESHOLD_ALGORITHM_ID:
         return f"임계값={parameters['threshold']} (L ≥ 임계값 → 흰색)"
     return f"σ={parameters['radius']:g} px"
@@ -39,7 +59,7 @@ def _describe(algorithm_id: str, parameters: dict) -> str:
 def render_gaussian_controls(source: ViewerSource) -> None:
     st.markdown("#### 영상 처리")
     algorithm = st.selectbox(
-        "처리 알고리즘", [NONE, GAUSSIAN, THRESHOLD], index=1,
+        "처리 알고리즘", [NONE, GAUSSIAN, GAMMA, THRESHOLD], index=1,
         key=PREFIX + "algorithm",
     )
     # A result made by another algorithm must not stay on screen as the new choice.
@@ -49,7 +69,19 @@ def render_gaussian_controls(source: ViewerSource) -> None:
     if algorithm == NONE:
         st.info("알고리즘을 선택하면 해당 설정을 표시합니다.")
         return
-    if algorithm == THRESHOLD:
+    if algorithm == GAMMA:
+        st.caption("출력 = 255 × (입력 / 255)^γ · γ < 1 밝게, γ > 1 어둡게, 1은 원본과 같습니다.")
+        value = st.number_input(
+            "감마 (γ)",
+            min_value=MIN_GAMMA,
+            max_value=MAX_GAMMA,
+            value=1.0,
+            step=0.1,
+            format="%.2f",
+            key=PREFIX + "gamma",
+        )
+        parameters = {"gamma": float(value)}
+    elif algorithm == THRESHOLD:
         st.caption("Pillow L 밝기(0~255)가 임계값 이상이면 흰색, 미만이면 검은색입니다. 같은 값은 흰색입니다.")
         value = st.number_input(
             "임계값 (L 밝기, 정수)",
@@ -90,6 +122,8 @@ def render_gaussian_controls(source: ViewerSource) -> None:
 
 def _run(image: Image.Image, request: dict) -> tuple[Image.Image, str]:
     parameters = request["parameters"]
+    if request["algorithm_id"] == GAMMA_ALGORITHM_ID:
+        return gamma_correction(image, parameters["gamma"]), GAMMA_ALGORITHM_VERSION
     if request["algorithm_id"] == THRESHOLD_ALGORITHM_ID:
         return threshold_segmentation(image, parameters["threshold"]), THRESHOLD_ALGORITHM_VERSION
     if request["algorithm_id"] == GAUSSIAN_ALGORITHM_ID:
@@ -106,6 +140,14 @@ def process_gaussian(image: Image.Image) -> Image.Image:
             if not isinstance(result, Image.Image) or result.mode != "RGB" or result.size != image.size:
                 raise ValueError("Invalid processing result")
         except Exception:
+            # The screen shows only a generic failure; keep the cause for developers.
+            # Log the short source ID and settings, never pixel data or file bytes.
+            settings = " ".join(f"{name}={value!r}" for name, value in request.get("parameters", {}).items())
+            logger.exception(
+                "%s processing failed: source_id=%s %s",
+                LOG_NAMES.get(request.get("algorithm_id"), "Image"),
+                str(request.get("source_id", ""))[:12], settings,
+            )
             st.session_state.pop(PREFIX + "result", None)
             st.session_state.pop(PREFIX + "applied", None)
             st.session_state[PREFIX + "error"] = True
