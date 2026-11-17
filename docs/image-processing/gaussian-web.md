@@ -68,20 +68,11 @@ Firebase 모의 로그인 및 검증 전용 저장 원본 선택/실패 주입�
 
 | 요청 | 변경 | 확인 |
 |---|---|---|
-| 1. 원본과 결과 영상의 시작 높이 정렬 | `viewer.py` 결과 열에서 제목 바로 아래에 이미지 자리(`st.container`)를 먼저 확보한다. 알고리즘 이름, 버전과 실제 σ 캡션은 결과 영상 아래에 표시한다. | 브라우저에서 두 이미지의 상단 y좌표가 같다(640.75px). 테스트는 `test_result_image_starts_at_same_height_as_original`. |
+| 1. 원본과 결과 영상의 시작 높이 정렬 | **보류.** 처음에는 `viewer.py`(A 담당)의 결과 열을 수정해 해결했다. 담당 범위를 지키기 위해 그 변경을 되돌렸고, 해결 방식은 팀장과 상의한 뒤 정한다. 현재는 결과 영상이 처리 설명 캡션만큼 아래에서 시작한다. | 미해결 |
 | 2. 처리 실패 원인을 `logging`으로 기록 | `gaussian_ui.py`의 예외 처리 지점에서 `logger.exception`으로 원래 예외와 traceback, 짧은 원본 ID와 σ를 기록한다. 픽셀이나 파일 바이트는 기록하지 않는다. 화면의 일반 실패 안내, 원본 유지와 이전 결과 제거는 그대로다. | 테스트 `test_failure_cause_is_logged_and_screen_stays_generic`. 로그에 `RuntimeError: test failure`가 남고 화면에는 예외 문구가 노출되지 않는다. |
 | 3. 저장 결과가 있는 경우의 자동 테스트 | 모의 저장 원본과 구별되는 저장 결과(자홍색 단색)를 사용한다. | 적용 전: 저장 결과로 구분해 표시한다. 성공 후: 새 결과와 실제 σ를 표시하고 저장 안내는 사라진다. 실패: 저장 결과를 성공처럼 표시하지 않고, 결과 영상 없이 원본과 오류 안내를 유지한다. |
 
-자동 검증: `uv run --locked python -m unittest discover -v` 결과 전체 76개가 통과했다(기존 71개 + 신규 5개).
-
-브라우저 확인: Edge(headless, Playwright)로 로컬 127.0.0.1:8522의 실제 `app.main`을 조작했다. 로그인은 Git에 넣지 않은 하네스의 모의 세션으로 대체했다. 이번에는 Playwright의 파일 입력으로 Lenna.png를 실제 `file_uploader`에 올려 업로드 경로도 확인했다.
-
-| 직접 조작 | 확인 결과 | 화면 |
-|---|---|---|
-| 합성 예시, σ=2 적용 | 원본과 결과가 같은 높이에서 시작, 캡션은 결과 아래 | [08](web-checks/08-aligned-synthetic-sigma2.jpg) |
-| Lenna.png 파일 업로드, σ=2 적용 | 같은 정렬, 영상 ID `7e497501a28b` | [09](web-checks/09-aligned-lenna-upload-sigma2.jpg) |
-
-`viewer.py`는 A 담당 파일이다. 이번 변경은 결과 열의 이미지 표시 위치만 바꾸며 확대, 이동과 보기 초기화 계산은 바꾸지 않았다. A의 `feature/viewer-controls`(#8)와 `git merge-tree`로 시험 병합한 결과, 이 변경은 A의 `display()` 수정(`transform.apply`)과 자동으로 합쳐진다. 남은 `viewer.py` 충돌 2곳(`original_bytes` 정의와 `ViewerSource` 반환)은 이번 변경 전에도 있던 것이며, #8 리뷰에서 합의하기로 한 내용이다.
+자동 검증: `uv run --locked python -m unittest discover -v` 결과 전체 75개가 통과했다(기존 71개 + 신규 4개). 이 브랜치의 변경은 B 담당 파일(`gaussian_ui.py`, 테스트, 문서)에만 있고 `viewer.py`는 변경하지 않았다.
 
 통합 기준은 `intergrationOfBC`이며 이 PR도 해당 브랜치를 대상으로 한다.
 기존 작업 폴더의 수정된 실험 산출물은 건드리지 않도록 별도 worktree에서 작업했다.

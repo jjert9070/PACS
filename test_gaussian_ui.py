@@ -152,7 +152,7 @@ def column_items(app, title):
 
 
 class GaussianReviewFollowUpTests(unittest.TestCase):
-    """PR #6 review: aligned images, logged failure cause, stored-result states."""
+    """PR #6 review: logged failure cause and stored-result states."""
 
     def stored_app(self):
         source = load_image("stored.png", sample_image_bytes())
@@ -168,17 +168,6 @@ class GaussianReviewFollowUpTests(unittest.TestCase):
     def apply(self, app, radius):
         app.number_input(key=PREFIX + "radius").set_value(radius).run()
         app.button(key=PREFIX + "apply").click().run()
-
-    def test_result_image_starts_at_same_height_as_original(self):
-        app = AppTest.from_string(SCRIPT, default_timeout=15).run()
-        app.radio(key="viewer_mode").set_value("합성 예시").run()
-        self.apply(app, 2.0)
-        self.assertEqual(column_items(app, "**원본 영상**")[0], "imgs")
-        processed = column_items(app, "**처리 결과**")
-        # Image directly under the title; algorithm/version/σ caption below it.
-        self.assertEqual(processed[0], "imgs")
-        self.assertIn("caption", processed[1:])
-        self.assertTrue(any("실제 적용 σ=2 px" in text.value for text in app.caption))
 
     def test_failure_cause_is_logged_and_screen_stays_generic(self):
         app = AppTest.from_string(SCRIPT, default_timeout=15).run()

@@ -202,13 +202,9 @@ def render_viewer(
         display(source.image)
     with processed:
         st.markdown("**처리 결과**")
-        # Reserve the image slot first: processor captions/notices then render
-        # below the result, so both images start at the same height.
-        image_slot = st.container()
         if processor is None:
             if mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
-                with image_slot:
-                    display(stored_result)
+                display(stored_result)
                 st.caption("이 케이스에 저장된 처리 결과입니다.")
             else:
                 st.info("처리 결과가 없습니다. 영상처리 기능을 연결하면 같은 영상의 결과를 여기에 표시합니다.")
@@ -217,12 +213,10 @@ def render_viewer(
                 result = processor(source.image.copy())
                 if not isinstance(result, Image.Image) or result.size != source.image.size:
                     raise ValueError("처리 결과는 원본과 같은 크기의 PIL 이미지여야 합니다.")
-                with image_slot:
-                    display(result)
+                display(result)
             except ProcessingPending as pending:
                 if mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
-                    with image_slot:
-                        display(stored_result)
+                    display(stored_result)
                     st.caption("이 케이스에 저장된 처리 결과입니다. 새 가우시안 적용 결과와 구분하세요.")
                 st.info(str(pending))
             except Exception:
