@@ -221,7 +221,16 @@ def render_viewer(
         original, processed = st.columns(2)
     # Limit only the display raster, never the processor's original-size input.
     def display(image: Image.Image) -> None:
-        preview = image.crop(box)
+        bounds = roi_bounds if roi_bounds is not None else (record.roi if record else None)
+        marked = image
+        if bounds is not None:
+            # PIL endpoints are inclusive; stored and active ROI ends are exclusive.
+            left, top, right, bottom = bounds
+            marked = image.copy()
+            ImageDraw.Draw(marked).rectangle(
+                (left, top, right - 1, bottom - 1), outline=(255, 210, 0), width=1,
+            )
+        preview = marked.crop(box)
         preview.thumbnail((900, 900))
         st.image(preview, width="stretch")
 
@@ -235,12 +244,16 @@ def render_viewer(
         # below the result, so both images start at the same height.
         image_slot = st.container()
         if record is not None:
-            display(record.result)
+            with image_slot:
+                display(record.result)
+            displayed_result = record.result
             show_processing(record, saved=saved)
             st.session_state["viewer_displayed_processing"] = record
         elif processor is None:
             if mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
-                display(stored_result)
+                with image_slot:
+                    display(stored_result)
+                displayed_result = stored_result
                 st.caption("이 케이스에 저장된 처리 결과입니다.")
             else:
                 st.info("처리 결과가 없습니다. 영상처리 기능을 연결하면 같은 영상의 결과를 여기에 표시합니다.")
