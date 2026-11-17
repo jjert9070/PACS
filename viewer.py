@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 import warnings
 
-from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageDraw, ImageOps, UnidentifiedImageError
 import streamlit as st
 
 
@@ -70,7 +70,7 @@ def load_image(name: str, data: bytes) -> ViewerSource:
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError,
             Image.DecompressionBombWarning, Image.DecompressionBombError) as error:
         raise ViewerInputError("영상 파일을 읽을 수 없습니다. 손상 여부와 파일 형식을 확인하세요.") from error
-    return ViewerSource(sha256(data).hexdigest(), name, expected, len(data), image, data)
+    return ViewerSource(sha256(data).hexdigest(), name, expected, len(data), image, original_bytes=data)
 
 
 def sample_image_bytes() -> bytes:
@@ -116,12 +116,16 @@ def render_viewer(
     processing_controls: Callable[[ViewerSource], None] | None = None,
     roi_controls: Callable[[ViewerSource], tuple[int, int, int, int] | None] | None = None,
     roi_summary: Callable | None = None,
+    processing_record=None,
+    stored_processing=None,
 ) -> ViewerSource | None:
     """Processor receives a COPY of the RGB source and must return the same size.
 
     No processing result or image is persisted to Firebase in this starter.
     The callback is run against the current image on each Streamlit rerun.
     """
+    st.session_state.pop("viewer_displayed_processing", None)
+    st.session_state.pop("viewer_processing_contract_error", None)
     st.subheader("PACS 뷰어")
     st.caption("교육용 영상 검토 · 원본을 보존하고 같은 위치의 처리 결과를 비교합니다.")
     selection, canvas, details = st.columns([1.15, 3.3, 1.15], gap="medium")
@@ -156,6 +160,8 @@ def render_viewer(
         for key in list(st.session_state):
             if key.startswith(("viewer_processing_", "viewer_roi_")):
                 del st.session_state[key]
+        st.session_state.pop("viewer_current_processing", None)
+        processing_record = None
         st.session_state["viewer_identity"] = identity
     if source is None:
         with canvas:
@@ -165,6 +171,22 @@ def render_viewer(
             st.caption("선택된 영상이 없습니다.")
         return None
 
+    from case_processing import validate_processing, show_processing
+
+    record = processing_record
+    saved = record is None and mode == "로컬 저장 영상"
+    if saved:
+        record = stored_processing
+    if record is not None:
+        try:
+            record = validate_processing(source, record)
+        except ValueError as error:
+            message = str(error)
+            st.session_state["viewer_processing_contract_error"] = message
+            with canvas:
+                st.error(message)
+            record = None
+            stored_result = None
     width, height = source.image.size
     if processing_controls is not None:
         with selection:
@@ -199,15 +221,7 @@ def render_viewer(
         original, processed = st.columns(2)
     # Limit only the display raster, never the processor's original-size input.
     def display(image: Image.Image) -> None:
-        marked = image
-        if roi_bounds is not None:
-            # PIL rectangle endpoints are inclusive; ROI right/bottom are exclusive.
-            left, top, right, bottom = roi_bounds
-            marked = image.copy()
-            ImageDraw.Draw(marked).rectangle(
-                (left, top, right - 1, bottom - 1), outline=(255, 210, 0), width=1,
-            )
-        preview = marked.crop(box)
+        preview = image.crop(box)
         preview.thumbnail((900, 900))
         st.image(preview, width="stretch")
 
@@ -220,11 +234,13 @@ def render_viewer(
         # Reserve the image slot first: processor captions/notices then render
         # below the result, so both images start at the same height.
         image_slot = st.container()
-        if processor is None:
+        if record is not None:
+            display(record.result)
+            show_processing(record, saved=saved)
+            st.session_state["viewer_displayed_processing"] = record
+        elif processor is None:
             if mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
-                with image_slot:
-                    display(stored_result)
-                displayed_result = stored_result
+                display(stored_result)
                 st.caption("이 케이스에 저장된 처리 결과입니다.")
             else:
                 st.info("처리 결과가 없습니다. 영상처리 기능을 연결하면 같은 영상의 결과를 여기에 표시합니다.")
