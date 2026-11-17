@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 import warnings
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 import streamlit as st
 
 
@@ -18,6 +18,10 @@ VIEW_KEYS = ("viewer_zoom", "viewer_x", "viewer_y")
 
 class ViewerInputError(ValueError):
     """A file cannot be safely displayed within this starter's support limits."""
+
+
+class ProcessingPending(Exception):
+    """A processor has no applied result yet; display guidance, not an error."""
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,9 @@ def render_viewer(
     *,
     stored_source: ViewerSource | None = None,
     stored_result: Image.Image | None = None,
+    processing_controls: Callable[[ViewerSource], None] | None = None,
+    roi_controls: Callable[[ViewerSource], tuple[int, int, int, int] | None] | None = None,
+    roi_summary: Callable | None = None,
 ) -> ViewerSource | None:
     """Processor receives a COPY of the RGB source and must return the same size.
 
@@ -146,6 +153,9 @@ def render_viewer(
     identity = (mode, source.source_id, source.name) if source else None
     if st.session_state.get("viewer_identity") != identity:
         reset_view()
+        for key in list(st.session_state):
+            if key.startswith(("viewer_processing_", "viewer_roi_")):
+                del st.session_state[key]
         st.session_state["viewer_identity"] = identity
     if source is None:
         with canvas:
@@ -156,6 +166,13 @@ def render_viewer(
         return None
 
     width, height = source.image.size
+    if processing_controls is not None:
+        with selection:
+            processing_controls(source)
+    roi_bounds = None
+    if roi_controls is not None:
+        with selection:
+            roi_bounds = roi_controls(source)
     with details:
         st.markdown("#### 영상 정보")
         st.text(source.name)
@@ -182,10 +199,19 @@ def render_viewer(
         original, processed = st.columns(2)
     # Limit only the display raster, never the processor's original-size input.
     def display(image: Image.Image) -> None:
-        preview = image.crop(box)
+        marked = image
+        if roi_bounds is not None:
+            # PIL rectangle endpoints are inclusive; ROI right/bottom are exclusive.
+            left, top, right, bottom = roi_bounds
+            marked = image.copy()
+            ImageDraw.Draw(marked).rectangle(
+                (left, top, right - 1, bottom - 1), outline=(255, 210, 0), width=1,
+            )
+        preview = marked.crop(box)
         preview.thumbnail((900, 900))
         st.image(preview, width="stretch")
 
+    displayed_result = None
     with original:
         st.markdown("**원본 영상**")
         display(source.image)
@@ -194,6 +220,7 @@ def render_viewer(
         if processor is None:
             if mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
                 display(stored_result)
+                displayed_result = stored_result
                 st.caption("이 케이스에 저장된 처리 결과입니다.")
             else:
                 st.info("처리 결과가 없습니다. 영상처리 기능을 연결하면 같은 영상의 결과를 여기에 표시합니다.")
@@ -203,7 +230,17 @@ def render_viewer(
                 if not isinstance(result, Image.Image) or result.size != source.image.size:
                     raise ValueError("처리 결과는 원본과 같은 크기의 PIL 이미지여야 합니다.")
                 display(result)
+                displayed_result = result
+            except ProcessingPending as pending:
+                if mode == "로컬 저장 영상" and stored_result is not None and stored_result.size == source.image.size:
+                    display(stored_result)
+                    displayed_result = stored_result
+                    st.caption("이 케이스에 저장된 처리 결과입니다. 새 가우시안 적용 결과와 구분하세요.")
+                st.info(str(pending))
             except Exception:
                 st.error("영상 처리에 실패했습니다. 원본은 유지됩니다. 처리 입력과 결과 크기를 확인하세요.")
+    if roi_summary is not None:
+        with canvas:
+            roi_summary(source, displayed_result, roi_bounds)
     st.caption("현재 보기는 세션 상태입니다. 원본 파일 저장과 케이스 연결 상태는 아래에서 별도로 확인합니다.")
     return source

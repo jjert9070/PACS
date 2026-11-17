@@ -1,0 +1,132 @@
+import unittest
+from unittest.mock import patch
+
+from PIL import Image
+from streamlit.testing.v1 import AppTest
+
+from gaussian_ui import PREFIX
+from image_processing import gaussian_blur
+from viewer import load_image, sample_image_bytes
+
+
+SCRIPT = '''import streamlit as st
+from viewer import render_viewer, clear_viewer
+from gaussian_ui import process_gaussian, render_gaussian_controls
+if st.button('테스트 로그아웃'):
+    clear_viewer()
+source = render_viewer(processor=process_gaussian, processing_controls=render_gaussian_controls,
+                       stored_source=st.session_state.get('test_stored_source'))
+if source:
+    st.session_state['test_original'] = source.image.tobytes()
+'''
+
+
+class GaussianWebTests(unittest.TestCase):
+    def app(self):
+        app = AppTest.from_string(SCRIPT, default_timeout=15).run()
+        app.radio(key="viewer_mode").set_value("합성 예시").run()
+        return app
+
+    def apply(self, app, radius):
+        app.number_input(key=PREFIX + "radius").set_value(radius).run()
+        app.button(key=PREFIX + "apply").click().run()
+
+    def test_apply_preserves_source_and_shows_actual_metadata(self):
+        app = self.app()
+        self.assertNotIn(PREFIX + "result", app.session_state)
+        self.apply(app, 2.0)
+        source = load_image("sample.png", sample_image_bytes())
+        self.assertEqual(app.session_state["test_original"], source.image.tobytes())
+        expected = gaussian_blur(source.image, 2)
+        self.assertEqual(app.session_state[PREFIX + "result"].tobytes(), expected.tobytes())
+        self.assertTrue(any("실제 적용 σ=2 px" in text.value for text in app.caption))
+        self.assertFalse(app.error)
+        self.assertFalse(app.exception)
+
+    def test_zero_and_upper_bound(self):
+        app = self.app()
+        self.apply(app, 0.0)
+        self.assertEqual(app.session_state[PREFIX + "result"].tobytes(), app.session_state["test_original"])
+        self.apply(app, 20.0)
+        self.assertEqual(app.session_state[PREFIX + "applied"]["parameters"], {"radius": 20.0})
+        self.assertFalse(app.error)
+
+    def test_algorithm_selection_hides_settings_and_discards_result(self):
+        app = self.app()
+        self.apply(app, 2.0)
+        app.selectbox(key=PREFIX + "algorithm").set_value("선택 안 함").run()
+        self.assertEqual(len(app.number_input), 0)
+        self.assertNotIn(PREFIX + "result", app.session_state)
+        self.assertTrue(any("처리 알고리즘을 선택" in text.value for text in app.info))
+        app.selectbox(key=PREFIX + "algorithm").set_value("가우시안").run()
+        self.assertEqual(app.number_input(key=PREFIX + "radius").value, 1)
+        self.assertNotIn(PREFIX + "result", app.session_state)
+
+    def test_draft_and_view_changes_do_not_reprocess_or_relabel(self):
+        app = self.app()
+        with patch("gaussian_ui.gaussian_blur", wraps=gaussian_blur) as processing:
+            self.apply(app, 2.0)
+            app.number_input(key=PREFIX + "radius").set_value(3.0).run()
+            app.slider(key="viewer_zoom").set_value(2.0).run()
+            app.slider(key="viewer_x").set_value(75).run()
+            app.slider(key="viewer_y").set_value(25).run()
+            next(button for button in app.button if button.label == "보기 초기화").click().run()
+            self.assertEqual(processing.call_count, 1)
+        self.assertEqual(app.slider(key="viewer_zoom").value, 1)
+        self.assertEqual(app.session_state[PREFIX + "applied"]["parameters"], {"radius": 2.0})
+        self.assertTrue(any("설정이 변경" in text.value for text in app.info))
+
+    def test_failure_discards_old_result_and_can_retry(self):
+        app = self.app()
+        self.apply(app, 2.0)
+        with patch("gaussian_ui.gaussian_blur", side_effect=RuntimeError("test failure")):
+            self.apply(app, 3.0)
+        self.assertTrue(app.error)
+        self.assertNotIn(PREFIX + "result", app.session_state)
+        self.assertNotIn(PREFIX + "applied", app.session_state)
+        app.slider(key="viewer_zoom").set_value(2.0).run()
+        self.assertTrue(app.error)
+        self.apply(app, 1.0)
+        self.assertFalse(app.error)
+
+    def test_wrong_result_contract_is_failure(self):
+        for result in (Image.new("RGB", (1, 1)), Image.new("L", (640, 480)), None):
+            with self.subTest(result=result):
+                app = self.app()
+                self.apply(app, 2.0)
+                with patch("gaussian_ui.gaussian_blur", return_value=result):
+                    self.apply(app, 1.0)
+                self.assertTrue(app.error)
+                self.assertNotIn(PREFIX + "result", app.session_state)
+
+    def test_source_removal_and_logout_clear_processing(self):
+        app = self.app()
+        self.apply(app, 2.0)
+        app.radio(key="viewer_mode").set_value("파일 가져오기").run()
+        self.assertNotIn(PREFIX + "result", app.session_state)
+        app.radio(key="viewer_mode").set_value("합성 예시").run()
+        self.assertEqual(app.number_input(key=PREFIX + "radius").value, 1)
+        self.apply(app, 2.0)
+        next(button for button in app.button if button.label == "테스트 로그아웃").click().run()
+        self.assertNotIn(PREFIX + "result", app.session_state)
+
+    def test_same_filename_different_bytes_clears_result(self):
+        from io import BytesIO
+
+        app = self.app()
+        first = load_image("same.png", sample_image_bytes())
+        app.session_state["test_stored_source"] = first
+        app.radio(key="viewer_mode").set_value("로컬 저장 영상").run()
+        self.apply(app, 2.0)
+        stream = BytesIO()
+        Image.new("RGB", (640, 480), (20, 50, 90)).save(stream, format="PNG")
+        second = load_image("same.png", stream.getvalue())
+        app.session_state["test_stored_source"] = second
+        app.run()
+        self.assertNotEqual(first.source_id, second.source_id)
+        self.assertNotIn(PREFIX + "result", app.session_state)
+        self.assertEqual(app.session_state["test_original"], second.image.tobytes())
+
+
+if __name__ == "__main__":
+    unittest.main()
