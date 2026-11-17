@@ -275,6 +275,9 @@ class CaseRecordTests(unittest.TestCase):
             self.assertFalse(fresh.exception)
             self.assertEqual(fresh.session_state["viewer_stored_processing"].statistics, processing.statistics)
             self.assertTrue(any(c.value == "저장 당시 처리 기록" for c in fresh.caption))
+            details = next(item for item in fresh.expander if item.label == "처리 기록 상세")
+            self.assertFalse(details.proto.expanded)
+            self.assertEqual(len(details.get("json")), 1)
             self.assertFalse(any("현재 세션의 처리 기록" in c.value for c in fresh.caption))
             fresh.slider(key="viewer_zoom").set_value(2.0).run()
             self.assertEqual(fresh.session_state["viewer_displayed_processing"].statistics, processing.statistics)
@@ -314,6 +317,31 @@ class CaseRecordTests(unittest.TestCase):
             self.assertFalse(self.commits)
             app.radio(key="viewer_mode").set_value("파일 가져오기").run()
             self.assertNotIn("viewer_current_processing", app.session_state)
+
+    def test_processing_only_changes_require_discard_before_case_switch(self):
+        processing = self.processing_fixture()
+        record = self.save(processing=processing)
+        env = {"PACS_FIREBASE_API_KEY": "test", "PACS_FIREBASE_PROJECT_ID": "p"}
+        with patch.dict(os.environ, env), patch("case_records_ui.storage_root", return_value=self.root):
+            for changed in (replace(processing, parameters={"radius": 2.0}),
+                            replace(processing, roi=None, statistics={})):
+                with self.subTest(parameters=changed.parameters, roi=changed.roi):
+                    app = AppTest.from_file("app.py")
+                    app.session_state["pacs_session"] = self.session
+                    app.run()
+                    app.checkbox(key="case_record_enabled").check().run()
+                    with patch("case_records_ui.list_cases", return_value=([record], "")):
+                        app.button(key="case_record_reload").click().run()
+                    app.button(key="case_record_open_" + record.case_id).click().run()
+                    app.session_state["viewer_current_processing"] = changed
+                    app.run()
+                    app.button(key="case_record_new").click().run()
+                    self.assertEqual(app.session_state["case_record_loaded"].case_id, record.case_id)
+                    self.assertTrue(any("저장하지 않은 내용" in item.value for item in app.warning))
+                    app.checkbox(key="case_record_discard").check().run()
+                    app.button(key="case_record_new").click().run()
+                    self.assertIsNone(app.session_state["case_record_loaded"])
+                    self.assertNotIn("viewer_current_processing", app.session_state)
 
     def test_retry_keeps_processing_snapshot_when_caller_mutates_result(self):
         processing = self.processing_fixture()
@@ -402,6 +430,35 @@ class CaseRecordTests(unittest.TestCase):
                     self.save(operation_id="c" * 32, base=base)
         self.assertEqual(caught.exception.status, 403)
         self.assertIn("reason=latest_read_failed", "\n".join(log.output))
+        self.assertEqual(len(self.commits), 1)
+
+    def test_wrong_source_blocks_save_and_matching_source_reenables_it(self):
+        from io import BytesIO
+        from PIL import Image
+        record = self.save()
+        image_bytes = BytesIO()
+        Image.new("RGB", self.source.image.size, "red").save(image_bytes, format="PNG")
+        different_source = load_image(self.source.name, image_bytes.getvalue())
+        script = ("import streamlit as st\n"
+                  "from case_records_ui import render_case_records\n"
+                  "from firebase_client import Session\n"
+                  "render_case_records('p',Session('owner','e','t',float('inf')),"
+                  "st.session_state['test_source'])")
+        for source in (different_source, replace(self.source, name="renamed.png")):
+            with self.subTest(source_id=source.source_id, name=source.name):
+                app = AppTest.from_string(script)
+                app.session_state["test_source"] = source
+                app.session_state["case_record_loaded"] = record
+                app.run()
+                app.checkbox(key="case_record_enabled").check().run()
+                self.assertFalse(app.exception)
+                self.assertTrue(app.button(key="case_record_save").disabled)
+                self.assertTrue(any("수정 대상과 뷰어 원본" in item.value for item in app.warning))
+                self.assertNotIn("case_record_pending", app.session_state)
+                app.session_state["test_source"] = self.source
+                app.run()
+                self.assertFalse(app.button(key="case_record_save").disabled)
+                self.assertFalse(app.warning)
         self.assertEqual(len(self.commits), 1)
 
     def test_ui_conflict_preserves_input_and_shows_specific_guidance(self):

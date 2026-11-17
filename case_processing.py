@@ -58,5 +58,6 @@ def freeze_processing(source: ViewerSource, record: ProcessingRecord | None) -> 
 def show_processing(record: ProcessingRecord, *, saved: bool) -> None:
     st.caption("저장 당시 처리 기록" if saved else "현재 세션의 처리 기록 (저장 전)")
     st.text(f"{record.algorithm_id} / 버전 {record.algorithm_version}")
-    st.json({"실제 적용 설정": record.parameters, "원본 해시": record.source_id,
-             "ROI": record.roi, "저장된 통계" if saved else "현재 통계": record.statistics})
+    with st.expander("처리 기록 상세", expanded=False):
+        st.json({"실제 적용 설정": record.parameters, "원본 해시": record.source_id,
+                 "ROI": record.roi, "저장된 통계" if saved else "현재 통계": record.statistics})

@@ -1,5 +1,6 @@
 """Owner-only case records using the explicitly enabled development file store."""
 
+from dataclasses import replace
 from uuid import uuid4
 
 import streamlit as st
@@ -29,7 +30,9 @@ def _error(error: Exception) -> None:
 def _dirty() -> bool:
     initial = st.session_state.get("case_record_initial", ("", "", ""))
     current = tuple(st.session_state.get("case_record_" + key, "") for key in ("title", "note", "provenance"))
-    return current != initial or st.session_state.get("case_record_pending") is not None
+    return (current != initial or st.session_state.get("case_record_pending") is not None
+            or st.session_state.get("case_record_processing_current")
+            != st.session_state.get("case_record_processing_initial"))
 
 
 def _switch(project_id: str, session: Session, case_id: str | None) -> None:
@@ -53,6 +56,11 @@ def _switch(project_id: str, session: Session, case_id: str | None) -> None:
     for key in ("title", "note", "provenance"):
         st.session_state["case_record_" + key] = values[key]
     st.session_state["case_record_initial"] = tuple(values[key] for key in ("title", "note", "provenance"))
+    processing = restored[1] if restored else None
+    st.session_state["case_record_processing_initial"] = (
+        replace(processing, roi=tuple(processing.roi) if processing.roi is not None else None)
+        if processing is not None else None
+    )
     for key in ("case_record_pending", "case_record_history", "case_record_error", "case_record_saved"):
         st.session_state.pop(key, None)
     st.session_state["case_record_discard"] = False
@@ -75,6 +83,11 @@ def render_case_records(
     processing: ProcessingRecord | None = None,
     processing_error: str | None = None,
 ) -> None:
+    # Compare applied records on a switch; ROI lists and tuples mean the same bounds.
+    st.session_state["case_record_processing_current"] = (
+        replace(processing, roi=tuple(processing.roi) if processing.roi is not None else None)
+        if processing is not None else None
+    )
     st.subheader("원본과 연결된 내 케이스")
     st.caption("원본은 개발용 PC에, 제목과 메모, 출처와 버전은 Firestore에 저장합니다. 검토 요청과 역할 배정은 이번 범위에서 제외했습니다.")
     if not st.checkbox("케이스용 개발 저장소 사용", key="case_record_enabled"):
@@ -118,12 +131,17 @@ def render_case_records(
     title = st.text_input("케이스 제목", max_chars=120, key="case_record_title")
     note = st.text_area("케이스 메모", max_chars=4000, key="case_record_note")
     provenance = st.text_area("원본 출처와 사용 허용 근거", max_chars=2000, key="case_record_provenance")
-    if loaded and (source is None or source.source_id != loaded.values["source_id"]):
+    source_mismatch = bool(loaded and (
+        source is None or source.source_id != loaded.values["source_id"]
+        or source.name != loaded.values["original_name"]
+        or source.image.size != (loaded.values["width"], loaded.values["height"])
+    ))
+    if source_mismatch:
         st.warning("수정 대상과 뷰어 원본이 다릅니다. 같은 케이스를 다시 열거나 새 케이스로 작성하세요.")
     if processing_error:
         st.error(processing_error)
     pending = st.session_state.get("case_record_pending")
-    submit = st.button("원본과 케이스 저장", disabled=bool(processing_error) or source is None or pending is not None or bool(st.session_state.get("case_record_saved")), key="case_record_save")
+    submit = st.button("원본과 케이스 저장", disabled=bool(processing_error) or source is None or source_mismatch or pending is not None or bool(st.session_state.get("case_record_saved")), key="case_record_save")
     if submit:
         try:
             processing = freeze_processing(source, processing)
@@ -152,6 +170,7 @@ def render_case_records(
             st.session_state["case_record_saved"] = pending["case_id"]
             st.session_state.pop("case_record_pending", None)
             st.session_state["case_record_initial"] = (pending["title"], pending["note"], pending["provenance"])
+            st.session_state["case_record_processing_initial"] = pending["processing"]
     saved = st.session_state.get("case_record_saved")
     if saved:
         st.success("개발용 원본 파일과 Firestore 케이스를 저장했습니다. 계속 수정하려면 저장본을 다시 여세요.")
