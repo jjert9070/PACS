@@ -21,6 +21,7 @@ from image_processing import (
     gaussian_blur,
     threshold_segmentation,
 )
+from processing_compat import check_compatibility, processing_environment
 from viewer import ProcessingPending, ViewerSource
 
 PREFIX = "viewer_processing_"
@@ -56,6 +57,31 @@ def _describe(algorithm_id: str, parameters: dict) -> str:
     return f"σ={parameters['radius']:g} px"
 
 
+def _check_restored(restored: dict, source: ViewerSource):
+    """Compatibility of the record C reopened; version/environment come from C's record."""
+    stored = st.session_state.get("viewer_stored_processing")
+    if stored is not None and getattr(stored, "source_id", None) != source.source_id:
+        stored = None
+    version = restored.get("algorithm_version", getattr(stored, "algorithm_version", None))
+    environment = restored.get("environment", getattr(stored, "environment", None))
+    return check_compatibility(restored["algorithm_id"], version, restored["parameters"], environment)
+
+
+def _show_stored_check(check) -> None:
+    """Explain why stored settings were not restored and whether conditions changed."""
+    if check is None:
+        return
+    if not check.can_restore_settings:
+        st.warning(
+            "저장된 설정을 현재 처리 도구에 적용할 수 없습니다. 새 설정을 선택하세요. "
+            "저장 당시 결과는 다시 계산하지 않고 그대로 표시합니다.\n\n" + "\n".join(check.reasons)
+        )
+    elif check.environment_status == "changed":
+        st.info("\n\n".join(check.environment_notes))
+    elif check.environment_status == "missing":
+        st.caption(check.environment_notes[0])
+
+
 def render_gaussian_controls(source: ViewerSource) -> None:
     st.markdown("#### 영상 처리")
     algorithms = [NONE, GAUSSIAN, GAMMA, THRESHOLD]
@@ -64,20 +90,15 @@ def render_gaussian_controls(source: ViewerSource) -> None:
         st.session_state[PREFIX + "algorithm"] = GAUSSIAN
         for name, value in (("radius", 1.0), ("gamma", 1.0), ("threshold", 128)):
             st.session_state[PREFIX + name] = value
-        setting = {
-            GAUSSIAN_ALGORITHM_ID: ("radius", 0, MAX_GAUSSIAN_RADIUS),
-            GAMMA_ALGORITHM_ID: ("gamma", MIN_GAMMA, MAX_GAMMA),
-            THRESHOLD_ALGORITHM_ID: ("threshold", MIN_THRESHOLD, MAX_THRESHOLD),
-        }.get(restored["algorithm_id"])
-        if setting is not None:
-            name, lower, upper = setting
-            value = restored["parameters"].get(name)
-            if (type(value) in (int, float) and lower <= value <= upper
-                    and (name != "threshold" or type(value) is int)):
-                st.session_state[PREFIX + "algorithm"] = ALGORITHM_LABELS[restored["algorithm_id"]]
-                st.session_state[PREFIX + name] = int(value) if name == "threshold" else float(value)
-            else:
-                st.warning("저장된 설정을 현재 처리 도구에 적용할 수 없습니다. 새 설정을 선택하세요.")
+        st.session_state.pop(PREFIX + "stored_check", None)
+        if restored["algorithm_id"]:
+            check = _check_restored(restored, source)
+            st.session_state[PREFIX + "stored_check"] = check
+            if check.can_restore_settings:
+                # Fill the controls only; the stored result is shown as saved, not re-run.
+                name, value = next(iter(restored["parameters"].items()))
+                st.session_state[PREFIX + "algorithm"] = ALGORITHM_LABELS[check.algorithm_id]
+                st.session_state[PREFIX + name] = value if name == "threshold" else float(value)
     algorithm = st.selectbox(
         "처리 알고리즘", algorithms,
         index=0 if PREFIX + "algorithm" in st.session_state else 1,
@@ -89,6 +110,7 @@ def render_gaussian_controls(source: ViewerSource) -> None:
         st.session_state[PREFIX + "selected"] = algorithm
     if algorithm == NONE:
         st.info("알고리즘을 선택하면 해당 설정을 표시합니다.")
+        _show_stored_check(st.session_state.get(PREFIX + "stored_check"))
         return
     if algorithm == GAMMA:
         st.caption("출력 = 255 × (입력 / 255)^γ · γ < 1 밝게, γ > 1 어둡게, 1은 원본과 같습니다.")
@@ -127,6 +149,8 @@ def render_gaussian_controls(source: ViewerSource) -> None:
     algorithm_id = ALGORITHM_IDS[algorithm]
     if st.button(f"{algorithm} 적용", key=PREFIX + "apply"):
         _clear_processing()
+        # The notice is about the stored record; a newly applied result replaces it.
+        st.session_state.pop(PREFIX + "stored_check", None)
         st.session_state[PREFIX + "request"] = {
             "source_id": source.source_id,
             "algorithm_id": algorithm_id,
@@ -139,6 +163,8 @@ def render_gaussian_controls(source: ViewerSource) -> None:
             f"설정이 변경됐습니다. 현재 표시 결과는 적용 "
             f"{_describe(applied['algorithm_id'], applied['parameters'])}입니다."
         )
+    # After the apply button, so a newly applied result removes the stored-record notice at once.
+    _show_stored_check(st.session_state.get(PREFIX + "stored_check"))
 
 
 def _run(image: Image.Image, request: dict) -> tuple[Image.Image, str]:
@@ -179,6 +205,8 @@ def process_gaussian(image: Image.Image) -> Image.Image:
                 "algorithm_id": request["algorithm_id"],
                 "algorithm_version": version,
                 "parameters": dict(request["parameters"]),
+                # Kept per applied result, so it survives an absent or cleared ROI.
+                "environment": processing_environment(request["algorithm_id"]),
             }
     if st.session_state.get(PREFIX + "error"):
         raise ValueError("Image processing failed")
