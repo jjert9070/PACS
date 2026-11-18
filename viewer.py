@@ -13,6 +13,9 @@ import streamlit as st
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_PIXELS = 20_000_000
+TONE_MIN = 50
+TONE_MAX = 150
+TONE_DEFAULT = 100
 VIEW_DEFAULTS = {
     "viewer_zoom": 1.0,
     "viewer_x": 50,
@@ -20,6 +23,8 @@ VIEW_DEFAULTS = {
     "viewer_turns": 0,
     "viewer_flip_horizontal": False,
     "viewer_flip_vertical": False,
+    "viewer_brightness": TONE_DEFAULT,
+    "viewer_contrast": TONE_DEFAULT,
 }
 
 # Pillow names rotation constants by their counterclockwise angles.
@@ -61,6 +66,25 @@ class ViewTransform:
         if self.flip_vertical:
             preview = preview.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
         return preview
+
+
+def adjust_display_tone(preview: Image.Image, brightness: int, contrast: int) -> Image.Image:
+    """Apply the same 8-bit mapping to both panes, using a fixed contrast midpoint."""
+    if brightness == contrast == TONE_DEFAULT:
+        return preview
+
+    brightness_factor = brightness / 100
+    contrast_factor = contrast / 100
+    midpoint = 127.5
+    table = [
+        max(0, min(255, round((value * brightness_factor - midpoint) * contrast_factor + midpoint)))
+        for value in range(256)
+    ]
+    if preview.has_transparency_data:
+        return preview.convert("RGBA").point(table * 3 + list(range(256)))
+    if preview.mode == "L":
+        return preview.point(table)
+    return preview.convert("RGB").point(table * 3)
 
 
 def load_image(name: str, data: bytes) -> ViewerSource:
@@ -215,6 +239,14 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
             flip_vertical = st.toggle("상하 반전", key="viewer_flip_vertical")
         turns = st.session_state.viewer_turns
         transform = ViewTransform(box, turns, flip_horizontal, flip_vertical)
+        st.caption(f"표시 밝기·대비 · 기본 {TONE_DEFAULT}% · 범위 {TONE_MIN}~{TONE_MAX}%")
+        brightness_column, contrast_column = st.columns(2)
+        with brightness_column:
+            brightness = st.slider("표시 밝기", TONE_MIN, TONE_MAX, value=None, step=5,
+                                   key="viewer_brightness", format="%d%%")
+        with contrast_column:
+            contrast = st.slider("표시 대비", TONE_MIN, TONE_MAX, value=None, step=5,
+                                 key="viewer_contrast", format="%d%%")
         st.caption(f"원본 표시 영역: x=[{box[0]}, {box[2]}), y=[{box[1]}, {box[3]}) px")
         horizontal_status = "켜짐" if flip_horizontal else "꺼짐"
         vertical_status = "켜짐" if flip_vertical else "꺼짐"
@@ -224,7 +256,7 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
     def display(image: Image.Image) -> None:
         preview = transform.apply(image)
         preview.thumbnail((900, 900))
-        st.image(preview, width="stretch")
+        st.image(adjust_display_tone(preview, brightness, contrast), width="stretch")
 
     with original:
         st.markdown("**원본 영상**")

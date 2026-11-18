@@ -7,7 +7,9 @@ import zlib
 from PIL import Image
 from streamlit.testing.v1 import AppTest
 
-from viewer import ViewTransform, ViewerInputError, load_image, sample_image_bytes, viewport_box
+from viewer import (
+    ViewTransform, ViewerInputError, adjust_display_tone, load_image, sample_image_bytes, viewport_box,
+)
 
 
 def encoded_image(file_format="PNG", size=(24, 16), mode="RGB"):
@@ -143,6 +145,13 @@ class ViewTransformTests(unittest.TestCase):
                 self.assertEqual(preview.size, (box[3] - box[1], box[2] - box[0]))
                 self.assertEqual(preview.getextrema(), (73, 73))
 
+    def test_display_tone_uses_fixed_midpoint_and_preserves_alpha(self):
+        image = Image.frombytes("RGBA", (2, 1), bytes([0, 64, 160, 31, 255, 64, 160, 209]))
+        self.assertEqual(adjust_display_tone(image, 100, 100).tobytes(), image.tobytes())
+        adjusted = adjust_display_tone(image, 125, 150)
+        self.assertEqual(adjusted.tobytes(), bytes([0, 56, 236, 31, 255, 56, 236, 209]))
+        self.assertEqual(image.getpixel((0, 0)), (0, 64, 160, 31))
+
 
 class ViewerScreenTests(unittest.TestCase):
     def viewer_app(self, script="from viewer import render_viewer\nrender_viewer()"):
@@ -218,6 +227,53 @@ render_viewer(lambda image: Image.new('RGB', (1, 1)))''')
         app.radio(key="viewer_mode").set_value("합성 예시").run()
         self.assertFalse(app.exception)
         self.assertTrue(any("원본은 유지" in item.value for item in app.error))
+
+    def test_display_tone_changes_both_previews_and_reset_preserves_other_state(self):
+        pixels = bytes([64] * 3 + [160] * 3)
+        stream = BytesIO()
+        Image.frombytes("RGB", (2, 1), pixels).save(stream, format="PNG")
+        source_bytes = stream.getvalue()
+        script = '''from PIL import Image
+import streamlit as st
+from viewer import render_viewer
+
+def processor(image):
+    st.session_state['test_processor_input'] = image.tobytes()
+    if 'test_result' not in st.session_state:
+        st.session_state['test_result'] = Image.frombytes('L', (2, 1), bytes([64, 10]))
+    return st.session_state['test_result']
+
+source = render_viewer(processor)
+if source:
+    st.session_state['test_source'] = source
+'''
+        with patch("viewer.sample_image_bytes", return_value=source_bytes), patch("viewer.st.image") as display:
+            app = self.viewer_app(script)
+            self.assertEqual(len(app.slider), 0)
+            app.radio(key="viewer_mode").set_value("합성 예시").run()
+            app.session_state["viewer_roi_bounds"] = (0, 0, 1, 1)
+            app.session_state["viewer_processing_choice"] = "example"
+            app.session_state["case_note"] = "draft note"
+            app.slider(key="viewer_brightness").set_value(125).run()
+            display.reset_mock()
+            app.slider(key="viewer_contrast").set_value(150).run()
+            self.assertFalse(app.exception)
+            self.assertFalse(app.error)
+            self.assertEqual(display.call_count, 2)
+            original_preview, result_preview = [call.args[0] for call in display.call_args_list]
+            self.assertEqual(original_preview.tobytes(), bytes([56] * 3 + [236] * 3))
+            self.assertEqual(result_preview.tobytes(), bytes([56, 0]))
+            self.assertEqual(app.session_state["test_processor_input"], pixels)
+            self.assertEqual(app.session_state["test_source"].image.tobytes(), pixels)
+            self.assertEqual(app.session_state["test_source"].original_bytes, source_bytes)
+            self.assertEqual(app.session_state["test_result"].tobytes(), bytes([64, 10]))
+
+            app.button(key="viewer_reset").click().run()
+            self.assertEqual(app.slider(key="viewer_brightness").value, 100)
+            self.assertEqual(app.slider(key="viewer_contrast").value, 100)
+            self.assertEqual(app.session_state["viewer_roi_bounds"], (0, 0, 1, 1))
+            self.assertEqual(app.session_state["viewer_processing_choice"], "example")
+            self.assertEqual(app.session_state["case_note"], "draft note")
 
 
 if __name__ == "__main__":
