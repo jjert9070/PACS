@@ -118,6 +118,27 @@ if Path(name).suffix.lower() == ".dcm":
 | `frame_count` | `NumberOfFrames` (없으면 1). 현재 단일 프레임 영상만 통과 |
 | `modality` / `body_region` | `Modality` / `BodyPartExamined` (없으면 빈 값) |
 
+호출 방법과 실제 반환 예시는 다음과 같다(`ct_phantom.dcm`).
+
+```python
+from dicom_input import storage_metadata
+from dicom_registration import register_dicom_original
+
+instance = register_dicom_original(project_id, session, root, selected_study, series_uid,
+                                   original_bytes, storage_metadata)   # Decoder 인자로 전달
+storage_metadata(original_bytes)
+# DicomMetadata(
+#     patient=PatientIdentity(issuer="PACS-EDU-SYNTH", patient_id="SYN-0001"),
+#     study_uid="2.25.149507806656562660610365608692914628253",
+#     series_uid="2.25.28058702855470118505491159380278295257",
+#     sop_uid="2.25.63530155394486599675048569953311563220",
+#     sop_class_uid="1.2.840.10008.5.1.4.1.1.2",   # CT Image Storage
+#     frame_count=1, modality="CT", body_region="HEAD")
+# 원본 키: ede6e8726f541c3035054c9d4651789569635868e8fc3a4aea00affc890a3cce.dcm
+```
+
+미지원, 손상, 필수 정보 누락 입력은 `DicomReadError`를 일으킨다. C의 `_inspect`가 이를 해석 실패로 거절한다.
+
 C 브랜치(`feature/C-patient-study-storage` `8a9518e`) 사본에서 실제 샘플로 `register_dicom_original`을 실행해 다음을 확인했다(`test_dicom_c_handoff.py`, Firestore는 C 테스트와 같은 모의 구현).
 
 - 원본 키의 해시가 B의 `source_id`와 같다.
