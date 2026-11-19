@@ -1,0 +1,110 @@
+{
+  "algorithm_id": "gaussian_blur",
+  "algorithm_version": "2.0.0",
+  "python": "3.12.14",
+  "opencv": "4.12.0",
+  "roi_calculation": {
+    "numpy": "2.2.6",
+    "pillow": "12.3.0",
+    "brightness_method": "pillow_L_v1",
+    "variance_definition": "population",
+    "ddof": 0,
+    "calculation_dtype": "float64"
+  },
+  "coordinate_system": "exif_transposed_original_pixels_v1",
+  "image_size": [
+    256,
+    256
+  ],
+  "regions": {
+    "flat": [
+      16,
+      64,
+      48,
+      192
+    ],
+    "edge": [
+      112,
+      64,
+      144,
+      192
+    ],
+    "thin_line": [
+      52,
+      64,
+      70,
+      192
+    ]
+  },
+  "seed": 20261115,
+  "generator": "numpy.random.Generator(PCG64)",
+  "noise_sigma": [
+    0,
+    5,
+    20,
+    40
+  ],
+  "sigma_px": [
+    0,
+    1,
+    2,
+    4
+  ],
+  "kernel_size": {
+    "0": 1,
+    "1": 7,
+    "2": 13,
+    "4": 25
+  },
+  "border": "BORDER_REFLECT_101; sigma=0 independent copy, no filtering",
+  "noise_policy": "RGB independent normal noise; float64 addition, np.rint, clip 0..255, uint8 (8-bit experiment only)",
+  "brightness": "Pillow L for reference, input and result; population variance ddof=0",
+  "inputs": [
+    {
+      "noise_sigma": 0,
+      "source_id": "0e3b3881110fb9f8aac6c2bf6ccfe360ce2dad2c0d3e40152c9120f26134d4b2",
+      "file": "noise-0.png"
+    },
+    {
+      "noise_sigma": 5,
+      "source_id": "58eb06b524c2c306e4867d3a5971bfa91729dcf0e64e2735938a2c144b146392",
+      "file": "noise-5.png"
+    },
+    {
+      "noise_sigma": 20,
+      "source_id": "a33a00c299e4b88ce555e634a864fadb6a36b19d412554d36039efb3eb4c0f8b",
+      "file": "noise-20.png"
+    },
+    {
+      "noise_sigma": 40,
+      "source_id": "f3bbae5625b9e0f6f4c4e15483ec9a84a4a16b3ac0b574eaf3a0451593b5c504",
+      "file": "noise-40.png"
+    }
+  ],
+  "reference_sha256": "0e3b3881110fb9f8aac6c2bf6ccfe360ce2dad2c0d3e40152c9120f26134d4b2",
+  "result_encoding": "RGB PNG; OpenCV encoder receives BGR",
+  "file_sha256": {
+    "comparison.png": "6f64ff2b011e3d06d5878c750bcc39ca0f7797b34a95bc329a18f21f27426f33",
+    "noise-0-sigma-0.png": "0e3b3881110fb9f8aac6c2bf6ccfe360ce2dad2c0d3e40152c9120f26134d4b2",
+    "noise-0-sigma-1.png": "4407cd8080f1771e5e3d17bd354332009217cd61bd851a2b1638bd688e5ba463",
+    "noise-0-sigma-2.png": "da18550c0611a6ed1228ee8a39443dfc6f9dd556b74505ecf369d05fa6a446f6",
+    "noise-0-sigma-4.png": "01165890a403a79fea0bc22fcfa86c3e11eb3d5756cb203679adf4a24eaaec2e",
+    "noise-0.png": "0e3b3881110fb9f8aac6c2bf6ccfe360ce2dad2c0d3e40152c9120f26134d4b2",
+    "noise-20-sigma-0.png": "a33a00c299e4b88ce555e634a864fadb6a36b19d412554d36039efb3eb4c0f8b",
+    "noise-20-sigma-1.png": "8a01a94552505aad39bc5faf3f83e837ebac6b1c1aa1cfe66a7f799fd64763e2",
+    "noise-20-sigma-2.png": "fb6319939906359eec3fa4116e8408a2d1e719e0134cc14813a6c37bc54f4aae",
+    "noise-20-sigma-4.png": "255e7dde4e40cf0b05ab88ddab5f99bc167a3c42147b0d61d628009b29aaf1de",
+    "noise-20.png": "a33a00c299e4b88ce555e634a864fadb6a36b19d412554d36039efb3eb4c0f8b",
+    "noise-40-sigma-0.png": "f3bbae5625b9e0f6f4c4e15483ec9a84a4a16b3ac0b574eaf3a0451593b5c504",
+    "noise-40-sigma-1.png": "ee225af60fd9a8de4e713f6c0bfacc90d657d2bcea113feb0dc688b2db29a008",
+    "noise-40-sigma-2.png": "84a3099279364f9ba1a99890ae8ecdc3ddbbee22b0c39937496ac58e3d3c48fb",
+    "noise-40-sigma-4.png": "d8c37873fd913b2450d88bdcf0098ef9a9c8bddbefd3c49328a4022ea8a572b6",
+    "noise-40.png": "f3bbae5625b9e0f6f4c4e15483ec9a84a4a16b3ac0b574eaf3a0451593b5c504",
+    "noise-5-sigma-0.png": "58eb06b524c2c306e4867d3a5971bfa91729dcf0e64e2735938a2c144b146392",
+    "noise-5-sigma-1.png": "9836362a95d96eed943f3fae7d2754016f6e6747ecf771b8bfa905c806da809a",
+    "noise-5-sigma-2.png": "d8af89b3642521b9d78a561e9952b27002d2b28636ecd9cd32ba702c97fa7b29",
+    "noise-5-sigma-4.png": "1bee21f1730f2341f8a7561f4717a87d65fa5fe16d7d87c72d72cac8f85b138f",
+    "noise-5.png": "58eb06b524c2c306e4867d3a5971bfa91729dcf0e64e2735938a2c144b146392",
+    "reference.png": "0e3b3881110fb9f8aac6c2bf6ccfe360ce2dad2c0d3e40152c9120f26134d4b2"
+  }
+}

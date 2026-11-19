@@ -1,23 +1,44 @@
 """PNG/JPEG viewer UI and a small, explicit processing integration point."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from typing import Callable
 import warnings
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 import streamlit as st
 
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_PIXELS = 20_000_000
-VIEW_KEYS = ("viewer_zoom", "viewer_x", "viewer_y")
+TONE_MIN = 50
+TONE_MAX = 150
+TONE_DEFAULT = 100
+VIEW_DEFAULTS = {
+    "viewer_zoom": 1.0,
+    "viewer_x": 50,
+    "viewer_y": 50,
+    "viewer_turns": 0,
+    "viewer_flip_horizontal": False,
+    "viewer_flip_vertical": False,
+    "viewer_brightness": TONE_DEFAULT,
+    "viewer_contrast": TONE_DEFAULT,
+}
+
+# Pillow names rotation constants by their counterclockwise angles.
+CLOCKWISE_ROTATION = (
+    None, Image.Transpose.ROTATE_270, Image.Transpose.ROTATE_180, Image.Transpose.ROTATE_90
+)
 
 
 class ViewerInputError(ValueError):
     """A file cannot be safely displayed within this starter's support limits."""
+
+
+class ProcessingPending(Exception):
+    """A processor has no applied result yet; display guidance, not an error."""
 
 
 @dataclass(frozen=True)
@@ -27,6 +48,47 @@ class ViewerSource:
     file_format: str
     byte_count: int
     image: Image.Image
+    original_bytes: bytes = field(default=b"", repr=False, kw_only=True)
+
+
+@dataclass(frozen=True)
+class ViewTransform:
+    """Crop in source coordinates, then rotate and flip along the display axes."""
+
+    box: tuple[int, int, int, int]
+    turns: int = 0
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
+
+    def apply(self, image: Image.Image) -> Image.Image:
+        preview = image.crop(self.box)
+        rotation = CLOCKWISE_ROTATION[self.turns % 4]
+        if rotation is not None:
+            preview = preview.transpose(rotation)
+        if self.flip_horizontal:
+            preview = preview.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        if self.flip_vertical:
+            preview = preview.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        return preview
+
+
+def adjust_display_tone(preview: Image.Image, brightness: int, contrast: int) -> Image.Image:
+    """Apply the same 8-bit mapping to both panes, using a fixed contrast midpoint."""
+    if brightness == contrast == TONE_DEFAULT:
+        return preview
+
+    brightness_factor = brightness / 100
+    contrast_factor = contrast / 100
+    midpoint = 127.5
+    table = [
+        max(0, min(255, round((value * brightness_factor - midpoint) * contrast_factor + midpoint)))
+        for value in range(256)
+    ]
+    if preview.has_transparency_data:
+        return preview.convert("RGBA").point(table * 3 + list(range(256)))
+    if preview.mode == "L":
+        return preview.point(table)
+    return preview.convert("RGB").point(table * 3)
 
 
 def load_image(name: str, data: bytes) -> ViewerSource:
@@ -65,7 +127,7 @@ def load_image(name: str, data: bytes) -> ViewerSource:
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError,
             Image.DecompressionBombWarning, Image.DecompressionBombError) as error:
         raise ViewerInputError("영상 파일을 읽을 수 없습니다. 손상 여부와 파일 형식을 확인하세요.") from error
-    return ViewerSource(sha256(data).hexdigest(), name, expected, len(data), image)
+    return ViewerSource(sha256(data).hexdigest(), name, expected, len(data), image, original_bytes=data)
 
 
 def sample_image_bytes() -> bytes:
@@ -92,8 +154,11 @@ def viewport_box(size: tuple[int, int], zoom: float, x: int, y: int) -> tuple[in
 
 
 def reset_view() -> None:
-    for key, value in zip(VIEW_KEYS, (1.0, 50, 50)):
-        st.session_state[key] = value
+    st.session_state.update(VIEW_DEFAULTS)
+
+
+def rotate_view() -> None:
+    st.session_state.viewer_turns = (st.session_state.viewer_turns + 1) % 4
 
 
 def clear_viewer() -> None:
@@ -103,25 +168,48 @@ def clear_viewer() -> None:
             del st.session_state[key]
 
 
-def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None) -> ViewerSource | None:
+def render_viewer(
+    processor: Callable[[Image.Image], Image.Image] | None = None,
+    *,
+    stored_source: ViewerSource | None = None,
+    stored_result: Image.Image | None = None,
+    stored_result_source_id: str | None = None,
+    processing_controls: Callable[[ViewerSource], None] | None = None,
+    roi_controls: Callable[[ViewerSource], tuple[int, int, int, int] | None] | None = None,
+    roi_summary: Callable | None = None,
+    processing_record=None,
+    stored_processing=None,
+    allow_source_change: Callable[[], bool] | None = None,
+) -> ViewerSource | None:
     """Processor receives a COPY of the RGB source and must return the same size.
 
-    No processing result or image is persisted to Firebase in this starter.
+    This view does not write storage; the app submits its displayed record explicitly.
     The callback is run against the current image on each Streamlit rerun.
     """
+    st.session_state.pop("viewer_displayed_processing", None)
+    st.session_state.pop("viewer_displayed_result", None)
+    st.session_state.pop("viewer_processing_contract_error", None)
     st.subheader("PACS 뷰어")
     st.caption("교육용 영상 검토 · 원본을 보존하고 같은 위치의 처리 결과를 비교합니다.")
     selection, canvas, details = st.columns([1.15, 3.3, 1.15], gap="medium")
     with selection:
         st.markdown("#### 영상 선택")
         st.caption("PNG · JPEG / 20 MB · 2,000만 픽셀 이하")
-        mode = st.radio("영상 가져오기", ["파일 가져오기", "합성 예시"], key="viewer_mode")
+        mode = st.radio("영상 가져오기", ["파일 가져오기", "합성 예시", "로컬 저장 영상"], key="viewer_mode")
     source = None
+    input_failed = False
     try:
         if mode == "합성 예시":
             source = load_image("synthetic-sample.png", sample_image_bytes())
             with selection:
                 st.caption("명암과 사각형으로 만든 합성 예시입니다. 의료영상이 아닙니다.")
+        elif mode == "로컬 저장 영상":
+            if stored_source is not None:
+                source = load_image(stored_source.name, stored_source.original_bytes)
+                if source.source_id != stored_source.source_id:
+                    raise ViewerInputError("저장 원본의 참조와 파일 해시가 일치하지 않습니다.")
+            with selection:
+                st.caption("아래 개발용 로컬 원본 저장과 재열기 영역에서 저장한 원본을 선택하세요.")
         else:
             with selection:
                 uploaded = st.file_uploader("PNG/JPEG 영상 열기", type=["png", "jpg", "jpeg"],
@@ -130,12 +218,29 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
             if uploaded is not None:
                 source = load_image(uploaded.name, uploaded.getvalue())
     except ViewerInputError as error:
+        source = None
+        input_failed = True
         with canvas:
             st.error(str(error))
 
-    identity = (mode, source.source_id, source.name) if source else None
+    identity = source.source_id if source else None
+    previous = st.session_state.get("viewer_active_source")
+    if (identity != st.session_state.get("viewer_identity") and previous is not None
+            and not input_failed and allow_source_change is not None and not allow_source_change()):
+        source = previous
+        identity = source.source_id
+        mode = st.session_state.get("viewer_active_mode", mode)
+        with canvas:
+            st.warning("저장하지 않은 변경이 있습니다. 케이스 내용을 저장하거나 C의 폐기 확인을 선택한 뒤 영상을 전환하세요.")
+    st.session_state["viewer_active_source"] = source
+    st.session_state["viewer_active_mode"] = mode
     if st.session_state.get("viewer_identity") != identity:
         reset_view()
+        for key in list(st.session_state):
+            if key.startswith(("viewer_processing_", "viewer_roi_")):
+                del st.session_state[key]
+        st.session_state.pop("viewer_current_processing", None)
+        processing_record = None
         st.session_state["viewer_identity"] = identity
     if source is None:
         with canvas:
@@ -145,7 +250,30 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
             st.caption("선택된 영상이 없습니다.")
         return None
 
+    from case_processing import validate_processing, show_processing
+
+    record = processing_record
+    saved = record is None and mode == "로컬 저장 영상"
+    if saved:
+        record = stored_processing
+    if record is not None:
+        try:
+            record = validate_processing(source, record)
+        except ValueError as error:
+            message = str(error)
+            st.session_state["viewer_processing_contract_error"] = message
+            with canvas:
+                st.error(message)
+            record = None
+            stored_result = None
     width, height = source.image.size
+    if processing_controls is not None:
+        with selection:
+            processing_controls(source)
+    roi_bounds = None
+    if roi_controls is not None:
+        with selection:
+            roi_bounds = roi_controls(source)
     with details:
         st.markdown("#### 영상 정보")
         st.text(source.name)
@@ -155,10 +283,10 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
         st.divider()
         st.markdown("#### 표시 상태")
         st.success("영상 표시 준비 완료")
-        st.caption("세션에서만 사용 · 영구 저장 전")
+        st.caption("파일 저장 여부는 아래 저장 영역에서 확인하세요.")
         st.caption("픽셀 단위 표시 · 실제 길이 측정 미지원")
     with canvas:
-        st.button("보기 초기화", on_click=reset_view)
+        st.button("보기 초기화", key="viewer_reset", on_click=reset_view)
         controls = st.columns(3)
     with controls[0]:
         zoom = st.slider("확대 배율", 1.0, 4.0, value=None, step=0.25, key="viewer_zoom", format="%.2fx")
@@ -168,28 +296,118 @@ def render_viewer(processor: Callable[[Image.Image], Image.Image] | None = None)
         y = st.slider("세로 위치", 0, 100, value=None, key="viewer_y", disabled=zoom == 1)
     box = viewport_box(source.image.size, zoom, x, y)
     with canvas:
-        st.caption(f"표시 영역: x=[{box[0]}, {box[2]}), y=[{box[1]}, {box[3]}) px · 두 창은 같은 위치와 배율을 사용합니다.")
+        rotate, horizontal, vertical = st.columns(3)
+        with rotate:
+            st.button("시계 방향 90° 회전", key="viewer_rotate", on_click=rotate_view)
+        with horizontal:
+            flip_horizontal = st.toggle("좌우 반전", key="viewer_flip_horizontal")
+        with vertical:
+            flip_vertical = st.toggle("상하 반전", key="viewer_flip_vertical")
+        turns = st.session_state.viewer_turns
+        transform = ViewTransform(box, turns, flip_horizontal, flip_vertical)
+        st.caption(f"표시 밝기·대비 · 기본 {TONE_DEFAULT}% · 범위 {TONE_MIN}~{TONE_MAX}%")
+        brightness_column, contrast_column = st.columns(2)
+        with brightness_column:
+            brightness = st.slider("표시 밝기", TONE_MIN, TONE_MAX, value=None, step=5,
+                                   key="viewer_brightness", format="%d%%")
+        with contrast_column:
+            contrast = st.slider("표시 대비", TONE_MIN, TONE_MAX, value=None, step=5,
+                                 key="viewer_contrast", format="%d%%")
+        st.caption(f"원본 표시 영역: x=[{box[0]}, {box[2]}), y=[{box[1]}, {box[3]}) px")
+        horizontal_status = "켜짐" if flip_horizontal else "꺼짐"
+        vertical_status = "켜짐" if flip_vertical else "꺼짐"
+        st.caption(f"두 창 공통 보기 · 회전 {turns * 90}° · 좌우 반전 {horizontal_status} · 상하 반전 {vertical_status}")
         original, processed = st.columns(2)
+    active_bounds = roi_bounds if roi_controls is not None else (record.roi if record else None)
+    if active_bounds is not None:
+        from roi import validate_roi
+        try:
+            active_bounds = validate_roi(active_bounds, source.image.size)
+        except (TypeError, ValueError) as error:
+            with canvas:
+                st.error(str(error))
+            active_bounds = None
+            roi_bounds = None
     # Limit only the display raster, never the processor's original-size input.
     def display(image: Image.Image) -> None:
-        preview = image.crop(box)
+        bounds = active_bounds
+        marked = image
+        if bounds is not None:
+            # PIL endpoints are inclusive; stored and active ROI ends are exclusive.
+            left, top, right, bottom = bounds
+            marked = image.copy()
+            ImageDraw.Draw(marked).rectangle(
+                (left, top, right - 1, bottom - 1), outline=(255, 210, 0), width=1,
+            )
+        preview = transform.apply(marked)
         preview.thumbnail((900, 900))
-        st.image(preview, width="stretch")
+        st.image(adjust_display_tone(preview, brightness, contrast), width="stretch")
 
+    displayed_result = None
     with original:
         st.markdown("**원본 영상**")
         display(source.image)
     with processed:
         st.markdown("**처리 결과**")
-        if processor is None:
-            st.info("처리 결과가 없습니다. 영상처리 기능을 연결하면 같은 영상의 결과를 여기에 표시합니다.")
+        # Reserve the image slot first: processor captions/notices then render
+        # below the result, so both images start at the same height.
+        image_slot = st.container()
+        if st.session_state.get("viewer_processing_contract_error"):
+            st.info("현재 원본과 일치하는 처리 결과가 없습니다.")
+        elif record is not None and (processor is None or processing_record is not None):
+            with image_slot:
+                display(record.result)
+            displayed_result = record.result
+            show_processing(record, saved=saved)
+            st.session_state["viewer_displayed_processing"] = record
+        elif processor is None:
+            if (mode == "로컬 저장 영상" and stored_result is not None
+                    and stored_result_source_id == source.source_id
+                    and stored_result.size == source.image.size):
+                with image_slot:
+                    display(stored_result)
+                displayed_result = stored_result
+                st.caption("이 케이스에 저장된 처리 결과입니다.")
+            else:
+                st.info("처리 결과가 없습니다. 영상처리 기능을 연결하면 같은 영상의 결과를 여기에 표시합니다.")
         else:
             try:
                 result = processor(source.image.copy())
+                applied = st.session_state.get("viewer_processing_applied")
+                if applied is not None and applied.get("source_id") != source.source_id:
+                    raise ValueError("처리 결과가 현재 원본을 참조하지 않습니다.")
                 if not isinstance(result, Image.Image) or result.size != source.image.size:
                     raise ValueError("처리 결과는 원본과 같은 크기의 PIL 이미지여야 합니다.")
-                display(result)
+                with image_slot:
+                    display(result)
+                displayed_result = result
+            except ProcessingPending as pending:
+                if record is not None:
+                    with image_slot:
+                        display(record.result)
+                    displayed_result = record.result
+                    show_processing(record, saved=saved)
+                    st.session_state["viewer_displayed_processing"] = record
+                elif (mode == "로컬 저장 영상" and stored_result is not None
+                      and stored_result_source_id == source.source_id
+                      and stored_result.size == source.image.size):
+                    with image_slot:
+                        display(stored_result)
+                    displayed_result = stored_result
+                    st.caption("이 케이스에 저장된 처리 결과입니다. 새로 적용한 처리 결과와 구분하세요.")
+                st.info(str(pending))
             except Exception:
-                st.error("영상 처리에 실패했습니다. 원본은 유지됩니다. 처리 입력과 결과 크기를 확인하세요.")
-    st.caption("현재 영상은 세션에서만 사용합니다. 영구 저장과 처리 이력 연결은 다음 작업입니다.")
+                message = "영상 처리에 실패했습니다. 원본은 유지됩니다. 처리 입력과 결과 크기를 확인하세요."
+                st.session_state["viewer_processing_contract_error"] = message
+                st.error(message)
+    if active_bounds is not None:
+        left, top, right, bottom = active_bounds
+        if right <= box[0] or bottom <= box[1] or left >= box[2] or top >= box[3]:
+            with canvas:
+                st.info("선택한 ROI는 현재 보기에 표시되지 않음 · 원본 좌표의 선택은 유지됩니다.")
+    if roi_summary is not None:
+        with canvas:
+            roi_summary(source, displayed_result, roi_bounds)
+    st.session_state["viewer_displayed_result"] = displayed_result
+    st.caption("현재 보기는 세션 상태입니다. 원본 파일 저장과 케이스 연결 상태는 아래에서 별도로 확인합니다.")
     return source

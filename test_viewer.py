@@ -160,5 +160,60 @@ render_viewer(lambda image: Image.new('RGB', (1, 1)))''')
         self.assertTrue(any("원본은 유지" in item.value for item in app.error))
 
 
+class ViewerMergeRestorationTests(unittest.TestCase):
+    SCRIPT = '''import streamlit as st
+from viewer import render_viewer
+def summary(source, result, bounds):
+    st.session_state['seen_result'] = result.tobytes() if result is not None else None
+render_viewer(
+    stored_source=st.session_state['fixture_source'],
+    stored_result=st.session_state['fixture_result'],
+    stored_result_source_id=st.session_state['fixture_source'].source_id,
+    stored_processing=st.session_state.get('fixture_record'),
+    roi_controls=(lambda source: (1, 1, 4, 4)) if st.session_state['active_roi'] else None,
+    roi_summary=summary,
+)
+'''
+
+    def test_active_and_saved_roi_draw_on_copies_and_preserve_result_handoff(self):
+        from case_records import ProcessingRecord
+        from roi import compare_roi
+        from test_gaussian_ui import column_items
+
+        source = load_image("fixture.png", encoded_image(size=(8, 8)))
+        result = Image.new("RGB", (8, 8), (70, 70, 70))
+        statistics = compare_roi(source.image, result, (1, 1, 4, 4))
+        statistics["source_id"] = source.source_id
+        record = ProcessingRecord(source.source_id, "fixture", "1", {}, result,
+                                  (1, 1, 4, 4), statistics)
+        before = source.image.tobytes(), result.tobytes()
+        for saved in (False, True):
+            with self.subTest(saved_record=saved):
+                app = AppTest.from_string(self.SCRIPT)
+                app.session_state["fixture_source"] = source
+                app.session_state["fixture_result"] = result
+                app.session_state["fixture_record"] = record if saved else None
+                app.session_state["active_roi"] = not saved
+                app.run()
+                app.radio(key="viewer_mode").set_value("로컬 저장 영상")
+                captured = []
+                import streamlit as st
+                image_function = st.image
+                def capture(image, **kwargs):
+                    captured.append(image.copy())
+                    return image_function(image, **kwargs)
+                with patch("viewer.st.image", side_effect=capture):
+                    app.run()
+                self.assertFalse(app.exception)
+                self.assertEqual(len(captured), 2)
+                for image in captured:
+                    self.assertEqual(image.getpixel((1, 1)), (255, 210, 0))
+                    self.assertEqual(image.getpixel((3, 3)), (255, 210, 0))
+                    self.assertNotEqual(image.getpixel((4, 4)), (255, 210, 0))
+                self.assertEqual((source.image.tobytes(), result.tobytes()), before)
+                self.assertEqual(app.session_state["seen_result"], result.tobytes())
+                self.assertEqual(column_items(app, "**처리 결과**")[0], "imgs")
+
+
 if __name__ == "__main__":
     unittest.main()

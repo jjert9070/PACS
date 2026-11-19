@@ -5,5 +5,83 @@ service cloud.firestore {
     match /starter_checks/{uid} {
       allow get: if request.auth != null && request.auth.uid == uid;
     }
+    match /users/{uid}/cases/{caseId} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function validCase(d) {
+        return caseId.matches('^[0-9a-f]{32}$')
+          && d.keys().hasAll(['owner_uid', 'title', 'note', 'provenance',
+            'source_id', 'original_key', 'original_name', 'file_format',
+            'width', 'height', 'byte_count', 'state', 'version',
+            'operation_id', 'record_json', 'saved_at'])
+          && d.keys().hasOnly(['owner_uid', 'title', 'note', 'provenance',
+            'source_id', 'original_key', 'original_name', 'file_format',
+            'width', 'height', 'byte_count', 'state', 'version',
+            'operation_id', 'record_json', 'saved_at'])
+          && d.owner_uid == uid && d.state == 'draft'
+          && d.title is string && d.title.size() > 0 && d.title.size() <= 120
+          && d.title.matches('.*[^\\s].*')
+          && d.note is string && d.note.size() <= 4000
+          && d.provenance is string && d.provenance.size() > 0 && d.provenance.size() <= 2000
+          && d.original_name is string && d.original_name.size() > 0 && d.original_name.size() <= 512
+          && d.source_id is string && d.source_id.matches('^[0-9a-f]{64}$')
+          && d.file_format in ['PNG', 'JPEG']
+          && d.original_key == d.source_id + (d.file_format == 'PNG' ? '.png' : '.jpg')
+          && d.width is int && d.width > 0 && d.height is int && d.height > 0
+          && d.width * d.height <= 20000000
+          && d.byte_count is int && d.byte_count > 0 && d.byte_count <= 20971520
+          && d.version is int && d.version > 0
+          && d.operation_id is string && d.operation_id.matches('^[0-9a-f]{32}$')
+          && d.record_json is string && d.record_json.size() <= 60000
+          && d.saved_at == request.time;
+      }
+      function matchingVersion(d) {
+        return getAfter(/databases/$(database)/documents/users/$(uid)/cases/$(caseId)/versions/$(d.operation_id)).data == d;
+      }
+      allow get, list: if isOwner();
+      allow create: if isOwner() && validCase(request.resource.data)
+        && request.resource.data.version == 1 && matchingVersion(request.resource.data);
+      allow update: if isOwner() && validCase(request.resource.data)
+        && request.resource.data.version == resource.data.version + 1
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'owner_uid', 'source_id', 'original_key', 'original_name',
+          'file_format', 'width', 'height', 'byte_count'])
+        && request.resource.data.operation_id != resource.data.operation_id
+        && matchingVersion(request.resource.data);
+      match /versions/{operationId} {
+        allow get, list: if isOwner();
+        allow create: if isOwner() && validCase(request.resource.data)
+          && operationId == request.resource.data.operation_id
+          && getAfter(/databases/$(database)/documents/users/$(uid)/cases/$(caseId)).data == request.resource.data;
+        // No update or delete: previous versions remain immutable.
+      }
+    }
+    match /users/{uid}/case_drafts/{draftId} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      allow get, list: if isOwner();
+      allow create: if isOwner()
+        && draftId.matches('^[0-9a-f]{32}$')
+        && request.resource.data.keys().hasAll([
+          'owner_uid', 'title', 'note', 'stage', 'version', 'created_at'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'owner_uid', 'title', 'note', 'stage', 'version', 'created_at'
+        ])
+        && request.resource.data.owner_uid == uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.title.matches('.*[^\\s].*')
+        && request.resource.data.note is string
+        && request.resource.data.note.size() <= 4000
+        && request.resource.data.stage == 'metadata_only'
+        && request.resource.data.version is int
+        && request.resource.data.version == 1
+        && request.resource.data.created_at == request.time;
+      // Drafts are immutable in the first milestone; no update or delete permission.
+    }
   }
 }
