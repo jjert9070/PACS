@@ -48,6 +48,10 @@ def _switch(project_id: str, session: Session, case_id: str | None) -> None:
         if isinstance(error, FirebaseRequestError) and error.status == 401:
             from app import clear_session
             clear_session()
+        elif isinstance(error, FirebaseRequestError) and error.status == 403:
+            st.session_state["case_record_error"] = "케이스 원본 접근이 거절됐습니다 (403). 현재 사용자에게 허용된 케이스인지 확인하세요."
+        elif isinstance(error, FirebaseRequestError) and error.status == 404:
+            st.session_state["case_record_error"] = "저장한 케이스 문서를 찾을 수 없습니다 (404)."
         else:
             st.session_state["case_record_error"] = str(error)
         return

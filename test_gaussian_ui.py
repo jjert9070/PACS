@@ -133,7 +133,8 @@ from viewer import render_viewer
 from gaussian_ui import process_gaussian, render_gaussian_controls
 render_viewer(processor=process_gaussian, processing_controls=render_gaussian_controls,
               stored_source=st.session_state['test_stored_source'],
-              stored_result=st.session_state['test_stored_result'])
+              stored_result=st.session_state['test_stored_result'],
+              stored_result_source_id=st.session_state['test_stored_source'].source_id)
 '''
 STORED_NOTICE = "이 케이스에 저장된 처리 결과입니다"
 

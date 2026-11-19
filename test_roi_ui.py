@@ -94,7 +94,7 @@ render_viewer(stored_source=source, roi_controls=render_roi_controls,
         previous_id = statistics["source_id"]
         app.selectbox[0].set_value(200).run()
         self.assertFalse(app.exception)
-        self.assertNotEqual(app.session_state["viewer_identity"][1], previous_id)
+        self.assertNotEqual(app.session_state["viewer_identity"], previous_id)
         self.assertNotIn("viewer_roi_bounds", app.session_state)
         self.assertNotIn("viewer_roi_statistics", app.session_state)
         self.apply_roi(app, (0, 0, 4, 3))

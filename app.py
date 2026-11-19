@@ -6,7 +6,7 @@ from firebase_client import FirebaseRequestError, check_firestore, sign_in
 from viewer import clear_viewer, render_viewer
 from case_ui import clear_cases, render_cases
 from local_storage_ui import render_local_storage
-from case_records_ui import render_case_records
+from case_records_ui import render_case_records, _dirty as case_has_unsaved_changes
 from case_processing import processing_from_state
 from gaussian_ui import process_gaussian, render_gaussian_controls
 from roi_ui import render_roi_controls, render_roi_statistics
@@ -16,6 +16,11 @@ def clear_session() -> None:
     st.session_state.pop("pacs_session", None)
     clear_viewer()
     clear_cases()
+
+
+def allow_viewer_source_change() -> bool:
+    """Use C's existing dirty check and explicit discard choice for image changes."""
+    return not case_has_unsaved_changes() or st.session_state.get("case_record_discard", False)
 
 
 def show_login(api_key: str) -> None:
@@ -82,7 +87,8 @@ def main() -> None:
                            stored_source=stored_source,
                            stored_result=st.session_state.get("viewer_stored_result") if stored_source else None,
                            processing_record=st.session_state.get("viewer_current_processing"),
-                           stored_processing=st.session_state.get("viewer_stored_processing") if stored_source else None)
+                           stored_processing=st.session_state.get("viewer_stored_processing") if stored_source else None,
+                           allow_source_change=allow_viewer_source_change)
 
     try:
         processing = processing_from_state(source, st.session_state)

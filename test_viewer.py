@@ -168,6 +168,7 @@ def summary(source, result, bounds):
 render_viewer(
     stored_source=st.session_state['fixture_source'],
     stored_result=st.session_state['fixture_result'],
+    stored_result_source_id=st.session_state['fixture_source'].source_id,
     stored_processing=st.session_state.get('fixture_record'),
     roi_controls=(lambda source: (1, 1, 4, 4)) if st.session_state['active_roi'] else None,
     roi_summary=summary,
