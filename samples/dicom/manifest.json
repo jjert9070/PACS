@@ -1,0 +1,56 @@
+{
+  "generator": "experiments/dicom_samples.py",
+  "pydicom": "3.0.1",
+  "issuer_of_patient_id": "PACS-EDU-SYNTH",
+  "patient_data": "none (synthetic)",
+  "files": {
+    "ct_phantom.dcm": {
+      "expected": "supported",
+      "description": "CT, 256×256, 12-bit unsigned, Rescale −1024 (HU), Window 40/400, Explicit VR LE",
+      "bytes": 131978,
+      "sha256": "ede6e8726f541c3035054c9d4651789569635868e8fc3a4aea00affc890a3cce"
+    },
+    "mr_phantom.dcm": {
+      "expected": "supported",
+      "description": "MR, 192×160 (non-square), 12-bit unsigned, no window (min–max), Implicit VR LE",
+      "bytes": 62276,
+      "sha256": "05165807283bbdd88d347e882ffec30dc166389aa3617272cb3cf284e3eaa334"
+    },
+    "cr_monochrome1.dcm": {
+      "expected": "supported",
+      "description": "CR, 128×96, 8-bit MONOCHROME1 (inverted display), other patient with same name",
+      "bytes": 13128,
+      "sha256": "da565800495c2a47cd536d9281fe254d26549b0b8124f91459dd1c424fc889e3"
+    },
+    "unsupported_jpeg_baseline.dcm": {
+      "expected": "unsupported",
+      "description": "JPEG Baseline transfer syntax",
+      "bytes": 876,
+      "sha256": "4a5bdb3e1f9d37f2c60c107c126eda2f204959a9bb603e2ba079caffeaa40957"
+    },
+    "unsupported_multiframe.dcm": {
+      "expected": "unsupported",
+      "description": "3 frames",
+      "bytes": 394068,
+      "sha256": "0901f58dfde0120f90f623398042e59ba330d26f2afc09f78d444a9495aa5c84"
+    },
+    "unsupported_rgb.dcm": {
+      "expected": "unsupported",
+      "description": "Secondary Capture RGB",
+      "bytes": 3912,
+      "sha256": "b76666808e233e043687faa49987751275f9c1fcf1f8e222b17078a626362379"
+    },
+    "missing_issuer.dcm": {
+      "expected": "missing_tag",
+      "description": "IssuerOfPatientID removed",
+      "bytes": 131892,
+      "sha256": "6a27362ca7a8856843cbc4f2ad010eef0a78ab55847b14e01f7a78df832a2912"
+    },
+    "truncated.dcm": {
+      "expected": "corrupt",
+      "description": "first 60% of ct_phantom.dcm",
+      "bytes": 79186,
+      "sha256": "fe01c44fc15ec086d7835babcd3dd49ac10c70127de7599240d5c6c2706638c4"
+    }
+  }
+}

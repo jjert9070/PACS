@@ -71,6 +71,10 @@ def render_roi_statistics(source: ViewerSource, result, bounds):
         f"적용 ROI {tuple(statistics['bounds'])} · {statistics['width']} × {statistics['height']} px · "
         "노란 테두리 · 원본 좌표 기준 / Pillow L 밝기 / 모집단 분산(ddof=0)"
     )
+    if source.file_format == "DICOM":
+        # The viewer image of a DICOM is a recorded display mapping, not the stored values.
+        st.caption("DICOM은 표시 변환(윈도우 또는 최소–최대)으로 만든 0~255 표시값 기준입니다. "
+                   "CT HU 등 원본 저장값이나 물리 단위가 아닙니다.")
     original_column, result_column = st.columns(2)
     for column, label, values in (
         (original_column, "원본 ROI", statistics["original"]),
