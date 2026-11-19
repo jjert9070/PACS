@@ -1,10 +1,11 @@
 """A04/A05/A06 with B controls and C persistence; cloud requests use C's fixture."""
 
 from dataclasses import replace
+from io import BytesIO
 import unittest
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageOps
 from streamlit.testing.v1 import AppTest
 
 import test_bc_integration as bc_tests
@@ -76,6 +77,82 @@ class AIntegrationTests(unittest.TestCase):
         next(b for b in app.button if b.label == "로그아웃").click().run()
         self.assertFalse(app.exception)
         self.assertFalse(any(k.startswith(("viewer_", "case_")) for k in app.session_state.filtered_state))
+
+    def test_a06_clean_case_switch_keeps_form_source_result_and_roi_together(self):
+        first = self.save(self.processed_app())
+        stream = BytesIO()
+        ImageOps.invert(self.fixture.source.image).save(stream, format="PNG")
+        with patch("viewer.sample_image_bytes", return_value=stream.getvalue()):
+            second_app = self.processed_app(value=3.0)
+            self.set_roi(second_app, (10, 12, 30, 28))
+            second_app.checkbox(key="case_record_enabled").check().run()
+            second_app.text_area(key="case_record_note").set_value("second source")
+            second = self.save(second_app)
+        second_source, second_processing = bc_tests.reopen_case_processing(
+            self.fixture.root, self.fixture.session, second,
+        )
+        original_only = self.fixture.save(source=second_source)
+        self.assertNotEqual(first.values["source_id"], second_source.source_id)
+
+        for target in (second, original_only):
+            with self.subTest(processed=target is second):
+                app = self.open(self.app(), first)
+                app = self.open(app, target)
+                for _ in range(2):
+                    self.assertFalse(app.exception)
+                    self.assertFalse(app.error)
+                    self.assertEqual(app.session_state["case_record_loaded"].case_id, target.case_id)
+                    self.assertEqual(app.text_area(key="case_record_note").value, target.values["note"])
+                    self.assertEqual(app.session_state["viewer_identity"], second_source.source_id)
+                    self.assertEqual(app.session_state["viewer_active_source"].original_bytes,
+                                     second_source.original_bytes)
+                    current = app.session_state["case_record_processing_current"]
+                    self.assertEqual(current, app.session_state["case_record_processing_initial"])
+                    self.assertFalse(any("저장하지 않은 변경" in item.value or "뷰어 원본이 다릅니다" in item.value
+                                         for item in app.warning))
+                    state = app.session_state.filtered_state
+                    self.assertNotIn("viewer_processing_applied", state)
+                    if target is second:
+                        self.assertEqual(app.session_state["viewer_displayed_processing"], second_processing)
+                        self.assertEqual(app.session_state["viewer_displayed_result"].tobytes(),
+                                         second_processing.result.tobytes())
+                        self.assertEqual(app.session_state["viewer_roi_bounds"], tuple(second_processing.roi))
+                        self.assertEqual(app.session_state["viewer_roi_statistics"], second_processing.statistics)
+                        self.assertEqual(app.number_input(key="viewer_processing_radius").value, 3.0)
+                    else:
+                        self.assertIsNone(app.session_state["viewer_displayed_result"])
+                        self.assertNotIn("viewer_displayed_processing", state)
+                        self.assertNotIn("viewer_roi_bounds", state)
+                        self.assertNotIn("viewer_roi_statistics", state)
+                    app.run()
+                # A subsequent transition must also work without discarding anything.
+                self.open(app, first)
+                self.assertEqual(app.session_state["viewer_identity"], first.values["source_id"])
+
+    def test_a06_new_case_after_processed_saved_case_clears_previous_image(self):
+        record = self.save(self.processed_app())
+        app = self.open(self.app(), record)
+        app.slider(key="viewer_brightness").set_value(150).run()
+        app.button(key="viewer_rotate").click().run()
+        app.button(key="case_record_new").click().run()
+        for _ in range(2):
+            self.assertFalse(app.exception)
+            self.assertFalse(app.error)
+            self.assertIsNone(app.session_state["case_record_loaded"])
+            self.assertEqual(app.text_input(key="case_record_title").value, "")
+            self.assertEqual(app.text_area(key="case_record_note").value, "")
+            self.assertEqual(app.text_area(key="case_record_provenance").value, "")
+            self.assertIsNone(app.session_state["viewer_identity"])
+            self.assertIsNone(app.session_state["viewer_active_source"])
+            self.assertIsNone(app.session_state["case_record_processing_initial"])
+            self.assertIsNone(app.session_state["case_record_processing_current"])
+            state = app.session_state.filtered_state
+            self.assertFalse(any(k.startswith(("viewer_stored_", "viewer_current_", "viewer_displayed_",
+                                              "viewer_processing_", "viewer_roi_", "viewer_restore_"))
+                                 for k in state))
+            self.assertFalse(any("저장하지 않은 변경" in item.value for item in app.warning))
+            self.assertTrue(app.button(key="case_record_save").disabled)
+            app.run()
 
     def test_invalid_record_blocks_wrong_source_result_before_display(self):
         app = self.processed_app()

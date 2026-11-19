@@ -65,6 +65,9 @@ def _switch(project_id: str, session: Session, case_id: str | None) -> None:
         replace(processing, roi=tuple(processing.roi) if processing.roi is not None else None)
         if processing is not None else None
     )
+    # This callback runs before the viewer's source-change guard on the next run.
+    # A completed switch starts clean; failed or blocked switches return above.
+    st.session_state["case_record_processing_current"] = st.session_state["case_record_processing_initial"]
     for key in ("case_record_pending", "case_record_history", "case_record_error", "case_record_saved"):
         st.session_state.pop(key, None)
     st.session_state["case_record_discard"] = False
