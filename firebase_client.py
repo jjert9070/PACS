@@ -23,7 +23,7 @@ class Session:
         return time.monotonic() >= self.expires_at
 
 
-def request_json(request: Request) -> dict:
+def request_json(request: Request, *, array_response: bool = False) -> dict | list:
     try:
         with urlopen(request, timeout=10) as response:
             data = json.load(response)
@@ -33,7 +33,7 @@ def request_json(request: Request) -> dict:
     except (URLError, OSError, ValueError):
         raise FirebaseRequestError() from None
 
-    if not isinstance(data, dict):
+    if not isinstance(data, list if array_response else dict):
         raise FirebaseRequestError()
     return data
 

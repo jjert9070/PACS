@@ -1,6 +1,7 @@
 from copy import deepcopy
 from pathlib import Path
 import time
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -14,7 +15,9 @@ import study_image_store as store
 class StudyImageStoreTests(unittest.TestCase):
     def setUp(self):
         self.session = Session("owner", "test", "token", time.monotonic() + 3600)
-        self.root = Path("test-originals")
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
         self.image = StudyImage("study-1", "series-1", "image-1", "a" * 64 + ".png")
         self.documents = {}
         for target, replacement in (
@@ -85,14 +88,14 @@ class StudyImageStoreTests(unittest.TestCase):
         store.link_original("p", self.session, self.root, self.image)
         other = StudyImage("study-2", "series-2", "image-2", "b" * 64 + ".jpg")
         store.link_original("p", self.session, self.root, other)
-        with patch("study_image_store.request_json", return_value={
-            "documents": list(self.documents.values()), "nextPageToken": "next"
-        }):
+        with patch("study_image_store.query_page", return_value=([self.image], "next")) as query:
             self.assertEqual(store.list_study_images("p", self.session, "study-1"), ([self.image], "next"))
+        self.assertEqual(query.call_args.args[2:5], ("study_images", "study_key", store._key("study-1")))
 
     def test_series_images_are_filtered_without_losing_pagination(self):
-        with patch("study_image_store.list_study_images", return_value=([self.image], "next")):
+        with patch("study_image_store.query_page", return_value=([self.image], "next")) as query:
             self.assertEqual(store.list_series_images("p", self.session, "study-1", "series-1"), ([self.image], "next"))
+        self.assertEqual(query.call_args.args[3:5], ("series_key", store._key("series-1")))
         with self.assertRaises(StudyImageConflict):
             store.list_series_images("p", self.session, "study-1", "series-2")
 

@@ -1,6 +1,7 @@
 """Development-only original files, separated by authenticated user on one host."""
 
 from hashlib import sha256
+import logging
 import os
 from pathlib import Path
 import re
@@ -9,8 +10,21 @@ import tempfile
 from viewer import MAX_FILE_BYTES, ViewerSource, load_image
 
 
+logger = logging.getLogger(__name__)
+
+
 class LocalStorageError(ValueError):
     pass
+
+
+def _cleanup_temporary(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as error:
+        # Cleanup must not replace the publish result or its original exception.
+        logger.warning("original_temp_cleanup_failed errno=%s", error.errno)
 
 
 def storage_root() -> Path:
@@ -23,7 +37,8 @@ def _user_dir(root: Path, uid: str) -> Path:
         raise LocalStorageError("로그인 사용자 정보가 필요합니다.")
     root = root.resolve()
     user_dir = root / sha256(uid.encode("utf-8")).hexdigest()
-    if user_dir.is_symlink() or not user_dir.resolve().is_relative_to(root):
+    # The child name is a fixed hash; reject filesystem links instead of comparing path spellings.
+    if user_dir.is_symlink() or user_dir.is_junction():
         raise LocalStorageError("저장 경로를 확인할 수 없습니다.")
     return user_dir
 
@@ -33,7 +48,7 @@ def _file(root: Path, uid: str, key: str) -> Path:
         raise LocalStorageError("저장 파일 식별자가 올바르지 않습니다.")
     directory = _user_dir(root, uid)
     path = directory / key
-    if path.is_symlink() or not path.resolve().is_relative_to(directory.resolve()):
+    if path.is_symlink() or path.is_junction():
         raise LocalStorageError("저장 경로를 확인할 수 없습니다.")
     return path
 
@@ -65,8 +80,7 @@ def save_original(root: Path, uid: str, name: str, data: bytes) -> str:
             os.fsync(stream.fileno())
         try:
             # Publish complete bytes without ever replacing an existing original.
-            publish = os.rename if os.name == "nt" else os.link
-            publish(temporary, target)
+            os.link(temporary, target)
         except FileExistsError:
             existing = open_original(root, uid, key)
             if existing.original_bytes != data:
@@ -74,8 +88,7 @@ def save_original(root: Path, uid: str, name: str, data: bytes) -> str:
     except OSError:
         raise LocalStorageError("원본 파일을 저장하지 못했습니다. 저장 공간과 권한을 확인하세요.") from None
     finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+        _cleanup_temporary(temporary)
     return key
 
 
@@ -90,6 +103,7 @@ def list_originals(root: Path, uid: str) -> list[str]:
             if re.fullmatch(r"[0-9a-f]{64}\.(png|jpg)", item.name)
             and item.is_file()
             and not item.is_symlink()
+            and not item.is_junction()
         )
     except OSError:
         raise LocalStorageError("저장 목록을 읽지 못했습니다.") from None

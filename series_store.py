@@ -1,11 +1,10 @@
 """Series identities and study associations for the development store."""
 
 from dataclasses import dataclass
-from urllib.parse import quote, urlencode
-from urllib.request import Request
 
 from case_client import _request
-from firebase_client import FirebaseRequestError, Session, request_json
+from firebase_client import FirebaseRequestError, Session
+from storage_query import query_page
 from patient_study_identity import _identifier
 from patient_study_store import _collection_for, _create, _key, get_study
 
@@ -87,15 +86,4 @@ def list_study_series(
     if not isinstance(page_token, str):
         raise ValueError("페이지 정보가 올바르지 않습니다.")
     get_study(project_id, session, study_id)
-    collection = _collection_for(project_id, session, "series")
-    url = "https://firestore.googleapis.com/v1/" + quote(collection, safe="/()")
-    data = request_json(Request(
-        url + "?" + urlencode({"pageSize": 50, "pageToken": page_token}),
-        headers={"Authorization": f"Bearer {session.id_token}"},
-    ))
-    documents, token = data.get("documents", []), data.get("nextPageToken", "")
-    if not isinstance(documents, list) or not isinstance(token, str):
-        raise FirebaseRequestError()
-    results = [_decode(document, collection, session.uid) for document in documents]
-    # shortcut: filtering is per page, use a server query when the interface is finalized.
-    return [item for item in results if item.study_id == study_id], token
+    return query_page(project_id, session, "series", "study_key", _key(study_id), _decode, page_token)

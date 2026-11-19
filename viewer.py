@@ -93,6 +93,8 @@ def adjust_display_tone(preview: Image.Image, brightness: int, contrast: int) ->
 
 def load_image(name: str, data: bytes) -> ViewerSource:
     """Validate the actual file, decode fully, and preserve the original bytes."""
+    if not isinstance(name, str) or not isinstance(data, bytes):
+        raise ViewerInputError("파일명은 문자열, 원본 내용은 바이트여야 합니다.")
     suffix = Path(name).suffix.lower()
     expected = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG"}.get(suffix)
     if expected is None:

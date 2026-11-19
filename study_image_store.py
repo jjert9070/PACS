@@ -3,10 +3,9 @@
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from urllib.parse import quote, urlencode
-from urllib.request import Request
 
-from firebase_client import FirebaseRequestError, Session, request_json
+from firebase_client import FirebaseRequestError, Session
+from storage_query import query_page
 from local_storage import open_original, save_original
 from patient_study_identity import _identifier
 from patient_study_store import _collection_for, _create, _key, get_study
@@ -22,9 +21,10 @@ class StudyImageConflict(ValueError):
 class OriginalSavedLinkError(Exception):
     """The local original exists but the study association was not confirmed."""
 
-    def __init__(self, original_key: str):
+    def __init__(self, original_key: str, retry_recorded: bool = False):
         super().__init__("원본 파일은 저장됐지만 검사 연결을 완료하지 못했습니다.")
         self.original_key = original_key
+        self.retry_recorded = retry_recorded
 
 
 @dataclass(frozen=True)
@@ -111,10 +111,15 @@ def save_and_link_original(
         raise StudyImageConflict("선택한 검사와 시리즈 연결이 일치하지 않습니다.")
     original_key = save_original(root, session.uid, name, data)
     image = StudyImage(study_id, series_id, image_id, original_key)
+    retry_recorded = False
     try:
-        link_original(project_id, session, root, image)
+        from study_link_recovery import remember_link, retry_pending_link
+
+        remember_link(root, project_id, session, image)
+        retry_recorded = True
+        retry_pending_link(root, project_id, session, image_id)
     except (FirebaseRequestError, ValueError) as error:
-        raise OriginalSavedLinkError(original_key) from error
+        raise OriginalSavedLinkError(original_key, retry_recorded) from error
     return image
 
 
@@ -138,18 +143,7 @@ def list_study_images(
     if not isinstance(page_token, str):
         raise ValueError("페이지 정보가 올바르지 않습니다.")
     get_study(project_id, session, study_id)
-    collection = _collection_for(project_id, session, "study_images")
-    url = "https://firestore.googleapis.com/v1/" + quote(collection, safe="/()")
-    data = request_json(Request(
-        url + "?" + urlencode({"pageSize": 50, "pageToken": page_token}),
-        headers={"Authorization": f"Bearer {session.id_token}"},
-    ))
-    documents, token = data.get("documents", []), data.get("nextPageToken", "")
-    if not isinstance(documents, list) or not isinstance(token, str):
-        raise FirebaseRequestError()
-    images = [_decode(document, collection, session.uid) for document in documents]
-    # shortcut: filtering occurs per page across all studies, use a server query when the schema is agreed.
-    return [image for image in images if image.study_id == study_id], token
+    return query_page(project_id, session, "study_images", "study_key", _key(study_id), _decode, page_token)
 
 
 def list_series_images(
@@ -159,5 +153,8 @@ def list_series_images(
     series_id = _identifier(series_id, "시리즈 ID")
     if get_series(project_id, session, series_id).study_id != study_id:
         raise StudyImageConflict("선택한 검사와 시리즈 연결이 일치하지 않습니다.")
-    images, token = list_study_images(project_id, session, study_id, page_token)
-    return [image for image in images if image.series_id == series_id], token
+    get_study(project_id, session, study_id)
+    images, token = query_page(project_id, session, "study_images", "series_key", _key(series_id), _decode, page_token)
+    if any(image.study_id != study_id for image in images):
+        raise FirebaseRequestError()
+    return images, token

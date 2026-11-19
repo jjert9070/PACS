@@ -120,6 +120,12 @@ class PatientStudyStoreTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, 401)
         self.assertFalse(self.documents)
 
+    def test_patient_scoped_study_query_uses_the_confirmed_patient(self):
+        store.save_patient("p", self.session, self.patient)
+        with patch("storage_query.query_page", return_value=([self.study], "next")) as query:
+            self.assertEqual(store.list_patient_studies("p", self.session, self.patient), ([self.study], "next"))
+        self.assertEqual(query.call_args.args[2:5], ("studies", "patient_key", store._patient_key(self.patient)))
+
 
 if __name__ == "__main__":
     unittest.main()

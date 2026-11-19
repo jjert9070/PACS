@@ -62,10 +62,9 @@ class SeriesStoreTests(unittest.TestCase):
     def test_list_filters_page_and_preserves_next_token(self):
         store.save_series("p", self.session, self.series)
         store.save_series("p", self.session, Series("study-2", "series-2"))
-        with patch("series_store.request_json", return_value={
-            "documents": list(self.documents.values()), "nextPageToken": "next"
-        }):
+        with patch("series_store.query_page", return_value=([self.series], "next")) as query:
             self.assertEqual(store.list_study_series("p", self.session, "study-1"), ([self.series], "next"))
+        self.assertEqual(query.call_args.args[2:5], ("series", "study_key", store._key("study-1")))
 
 
 if __name__ == "__main__":

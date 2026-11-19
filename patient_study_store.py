@@ -142,3 +142,12 @@ def list_patients(project_id: str, session: Session, page_token: str = "") -> tu
 
 def list_studies(project_id: str, session: Session, page_token: str = "") -> tuple[list[StudyIdentity], str]:
     return _list(project_id, session, "studies", page_token)
+
+
+def list_patient_studies(
+    project_id: str, session: Session, patient: PatientIdentity, page_token: str = ""
+) -> tuple[list[StudyIdentity], str]:
+    from storage_query import query_page
+
+    get_patient(project_id, session, patient)
+    return query_page(project_id, session, "studies", "patient_key", _patient_key(patient), _decode_study, page_token)

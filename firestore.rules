@@ -2,6 +2,66 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function validDicomUid(value) {
+      return value is string && value.size() <= 64
+        && value.matches('^(0|[1-9][0-9]*)([.](0|[1-9][0-9]*))+$');
+    }
+    match /users/{uid}/dicom_uid_claims/{claimKey} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+        && claimKey.matches('^[0-9a-f]{64}$')
+        && request.resource.data.keys().hasAll(['owner_uid', 'dicom_uid', 'role'])
+        && request.resource.data.keys().hasOnly(['owner_uid', 'dicom_uid', 'role'])
+        && request.resource.data.owner_uid == uid
+        && validDicomUid(request.resource.data.dicom_uid)
+        && request.resource.data.role in ['study', 'series', 'instance'];
+      // A UID cannot be reassigned to another object role.
+    }
+    match /users/{uid}/dicom_instances/{instanceKey} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function matchesParents(d) {
+        let study = get(/databases/$(database)/documents/users/$(uid)/studies/$(d.study_key)).data;
+        let series = get(/databases/$(database)/documents/users/$(uid)/series/$(d.series_key)).data;
+        return study.owner_uid == uid && study.study_id == d.study_id
+          && study.patient_id == d.patient_id && study.issuer == d.issuer
+          && series.owner_uid == uid && series.study_id == d.study_id
+          && series.series_id == d.series_id && series.study_key == d.study_key
+          && series.modality == d.modality && series.body_region == d.body_region;
+      }
+      function matchingClaims(d) {
+        let study = get(/databases/$(database)/documents/users/$(uid)/dicom_uid_claims/$(d.study_key)).data;
+        let series = get(/databases/$(database)/documents/users/$(uid)/dicom_uid_claims/$(d.series_key)).data;
+        let instance = get(/databases/$(database)/documents/users/$(uid)/dicom_uid_claims/$(instanceKey)).data;
+        return study.owner_uid == uid && study.dicom_uid == d.study_id && study.role == 'study'
+          && series.owner_uid == uid && series.dicom_uid == d.series_id && series.role == 'series'
+          && instance.owner_uid == uid && instance.dicom_uid == d.sop_uid && instance.role == 'instance';
+      }
+      allow get, list: if isOwner();
+      allow create: if isOwner() && instanceKey.matches('^[0-9a-f]{64}$')
+        && request.resource.data.keys().hasAll(['owner_uid', 'issuer', 'patient_id', 'study_id', 'study_key', 'series_id', 'series_key', 'sop_uid', 'sop_class_uid', 'frame_count', 'modality', 'body_region', 'original_key', 'content_hash'])
+        && request.resource.data.keys().hasOnly(['owner_uid', 'issuer', 'patient_id', 'study_id', 'study_key', 'series_id', 'series_key', 'sop_uid', 'sop_class_uid', 'frame_count', 'modality', 'body_region', 'original_key', 'content_hash'])
+        && request.resource.data.owner_uid == uid
+        && validDicomUid(request.resource.data.study_id)
+        && validDicomUid(request.resource.data.series_id)
+        && validDicomUid(request.resource.data.sop_uid)
+        && validDicomUid(request.resource.data.sop_class_uid)
+        && request.resource.data.study_id != request.resource.data.series_id
+        && request.resource.data.study_id != request.resource.data.sop_uid
+        && request.resource.data.series_id != request.resource.data.sop_uid
+        && request.resource.data.sop_class_uid != request.resource.data.study_id
+        && request.resource.data.sop_class_uid != request.resource.data.series_id
+        && request.resource.data.sop_class_uid != request.resource.data.sop_uid
+        && request.resource.data.study_key is string && request.resource.data.study_key.matches('^[0-9a-f]{64}$')
+        && request.resource.data.series_key is string && request.resource.data.series_key.matches('^[0-9a-f]{64}$')
+        && request.resource.data.content_hash is string && request.resource.data.content_hash.matches('^[0-9a-f]{64}$')
+        && request.resource.data.original_key == request.resource.data.content_hash + '.dcm'
+        && request.resource.data.frame_count is int && request.resource.data.frame_count >= 0
+        && request.resource.data.frame_count <= 2147483647
+        && matchesParents(request.resource.data) && matchingClaims(request.resource.data);
+      // No update or delete: same SOP UID and different bytes must be held for review.
+    }
     match /users/{uid}/patients/{patientKey} {
       function isOwner() {
         return request.auth != null && request.auth.uid == uid;
