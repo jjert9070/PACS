@@ -127,9 +127,45 @@ C 브랜치(`feature/C-patient-study-storage` `8a9518e`) 사본에서 실제 샘
 
 이 테스트는 C 모듈이 없는 브랜치에서는 자동으로 건너뛴다.
 
+## 4-1. 등록, 재시도와 다시 열기 흐름 (`dicom_storage_flow.py`)
+
+팀장님 #23 코멘트의 C 원본 등록 연결, 일부 실패 처리, 재시도와 다시 열기 항목을 B 쪽에서 구현했다. C의 함수는 실행할 때 불러오므로 C 코드가 없는 브랜치에서도 이 파일을 읽어들일 수 있다. C 파일은 수정하지 않았다.
+
+| 함수 | 역할 |
+|---|---|
+| `register_dicom_file` / `register_dicom_files` | B가 먼저 해석해 거절 사유를 정확히 남긴 뒤, 원본 바이트 그대로 C의 `register_dicom_original`(Decoder=`storage_metadata`)을 호출한다. 여러 파일은 입력 순서대로 파일별 결과를 반환한다 |
+| `summarize` | 상태별 개수. `completed`에는 등록과 재사용만 센다 |
+| `list_pending` / `retry_pending` | C의 `list_pending_dicom`, `retry_dicom_registration`. 같은 SOP UID와 보관한 원본으로만 재시도한다 |
+| `open_dicom_display` | C의 `open_dicom_original`로 관계·해시·재해석을 확인한 뒤 B가 디코딩해 `DicomDisplay`를 반환한다(뷰어용 `ViewerSource`, SOP UID, 객체 프레임 수와 표시 프레임 수) |
+
+파일별 결과(`DicomFileResult`)는 다음 중 하나다.
+
+| `status` | `stage` | 의미 |
+|---|---|---|
+| `registered` | `after_save` | 새 원본을 보관하고 연결했다. 결과에 `DicomInstance`와 원본 키가 들어 있다 |
+| `reused` | `after_save` | 같은 SOP UID, 같은 내용과 같은 연결이 이미 있어 재사용했다 |
+| `rejected` | `before_save` | B 해석 단계에서 거절했다(손상·누락·미지원·20 MB 초과). 저장한 것이 없다 |
+| `conflict` | `before_save` | 선택한 환자·검사·시리즈가 파일과 다르거나, 같은 SOP UID에 다른 내용이 들어왔다. 저장하지 않고 기존 자료도 덮어쓰지 않는다 |
+| `failed` | `before_save` | 원본을 저장하기 전에 요청이나 저장소가 실패했다(`permission_denied`, `session_expired`, `request_failed`, `local_storage_failure`) |
+| `saved_not_linked` | `after_save` | `DicomOriginalSavedError`. 원본은 보관됐지만 연결을 확인하지 못했다. `original_key`를 함께 반환한다. `retry_recorded`가 참이면 "미완료 목록에서 재시도"를, 거짓이면 "같은 파일로 다시 등록"을 안내한다. 등록 완료로 세지 않는다 |
+
+다시 열기가 실패하면 `DicomOpenError.code`로 원인을 구분한다. 원본 누락이나 해시 불일치는 `original_unavailable`, 선택과 연결이 다르면 `link_mismatch`, 등록 기록이 없으면 `not_found`다. 어느 경우에도 정상 영상으로 표시하지 않는다.
+
 ## 5. 검증
 
-- 자동 테스트: `uv run --locked python -m unittest discover -v` 결과 **182개 통과, 1개 건너뜀**(C 모듈이 필요한 연결 시험). 신규 `test_dicom_input.py` 20개, `test_dicom_c_handoff.py` 3개(C 브랜치에서 실행해 통과).
+- 자동 테스트: 이 브랜치에서 `uv run --locked python -m unittest discover -v`를 실행하면 **193개 중 181개 통과, 12개 건너뜀**이다. 건너뛴 12개는 C 모듈이 필요한 시험이다. C 브랜치(`8a9518e`) 사본에 B 파일을 넣어 실행하면 **263개가 모두 통과**한다(C 기존 시험 포함).
+  - `test_dicom_input.py` 20개: 해석, 표시, 오류, 뷰어 연결
+  - `test_dicom_c_handoff.py` 3개: C Decoder 계약
+  - `test_dicom_storage_flow.py` 8개: 등록·재시도·다시 열기
+- 등록 흐름 시험(실제 샘플과 C 코드, Firestore는 프로세스 사이에 공유되는 JSON 파일로 모의):
+  - 6개 파일을 한 번에 등록할 때 파일별 결과가 입력 순서대로 나온다(등록, 재사용, 선택 불일치, 미지원, 손상, 20 MB 초과).
+  - 같은 SOP UID에 다른 내용이 들어오면 보류하고 기존 원본을 보존한다.
+  - 연결이 거절되면 `saved_not_linked`를 반환하고 미완료 기록을 남긴다. 거절 중 재시도는 실패하고, 허용 후 재시도하면 성공한다.
+  - 재시도 기록 저장에 실패했을 때는 다른 안내 문구가 나온다.
+  - 저장 전 실패(권한 거절, 요청 실패, 다른 환자 선택)에서는 아무것도 저장하지 않는다.
+  - 다시 열면 픽셀 디코딩이 맞다(물 102, 원본 저장값 일치).
+  - 원본 손상, 원본 누락, 다른 환자, 없는 SOP UID는 거절한다.
+  - **재시작 시험**: 프로세스 1에서 등록하다 연결이 거절된다. 새 Python 프로세스 2에서 미완료 목록을 조회하고 재시도로 연결을 완료한 뒤, 다시 열어 픽셀을 디코딩한다.
 - 확인한 항목: 샘플 재생성 일치와 해시, CT 식별자·저장값·윈도우 값(물 HU 0 → 102), MR 직사각형 방향과 최소–최대, MONOCHROME1 반전, 읽기 전후 바이트와 해시 유지, 오류 4종 분류와 문구의 개인정보 비포함, 뷰어 입력 오류 경로, 세 알고리즘과 ROI의 원본 참조.
 - 브라우저: 실제 A 뷰어와 B 처리·ROI에 DICOM 샘플을 넘기는 검증용 페이지(저장소 밖)로 확인했다. A의 `.dcm` 분기 대신 테스트와 같은 방식으로 B 로더를 연결했다.
 
