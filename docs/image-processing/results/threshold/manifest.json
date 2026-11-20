@@ -1,0 +1,142 @@
+{
+  "algorithm_id": "threshold_segmentation",
+  "algorithm_version": "1.0.0",
+  "parameters": {
+    "threshold": [
+      64,
+      100,
+      128,
+      160,
+      200
+    ],
+    "otsu_reference": "cv2.THRESH_OTSU on body L; reference, not a team algorithm",
+    "ground_truth": "clean chart body (rows 32..255) >= 128"
+  },
+  "python": "3.12.14",
+  "numpy": "2.2.6",
+  "opencv": "4.12.0",
+  "pillow": "12.3.0",
+  "roi_calculation": {
+    "numpy": "2.2.6",
+    "pillow": "12.3.0",
+    "brightness_method": "pillow_L_v1",
+    "variance_definition": "population",
+    "ddof": 0,
+    "calculation_dtype": "float64"
+  },
+  "seed": 20261115,
+  "generator": "numpy.random.Generator(PCG64)",
+  "noise_sigma": 20,
+  "noise_policy": "one L noise field copied to R, G, B; float64 addition, np.rint, clip 0..255",
+  "exposure": {
+    "under": "x*0.45",
+    "over": "255-(255-x)*0.45",
+    "rounding": "np.rint"
+  },
+  "chart": {
+    "ramp_rows": [
+      0,
+      32
+    ],
+    "background": 60,
+    "object": 180,
+    "dark_patch": [
+      [
+        20,
+        44,
+        50,
+        74
+      ],
+      75
+    ],
+    "bright_block": [
+      [
+        180,
+        40,
+        250,
+        90
+      ],
+      210
+    ],
+    "bright_patch": [
+      [
+        200,
+        50,
+        230,
+        80
+      ],
+      225
+    ],
+    "rois": {
+      "dark_patch": [
+        20,
+        44,
+        50,
+        74
+      ],
+      "dark_background": [
+        56,
+        44,
+        86,
+        74
+      ],
+      "bright_patch": [
+        200,
+        50,
+        230,
+        80
+      ],
+      "object": [
+        70,
+        120,
+        110,
+        160
+      ],
+      "background": [
+        12,
+        200,
+        42,
+        240
+      ]
+    }
+  },
+  "lenna": "experiments/Lenna.png, INTER_AREA 256x256, Pillow L copied to RGB (same as Gaussian experiment)",
+  "file_sha256": {
+    "chart_noise20-otsu-124.png": "cd4f703372bceed1f728b84ae10ed9a2a8b369fb45a2f0239b4391ae3607213d",
+    "chart_noise20-t-100.png": "195ab9fb563463ea253b55f7ad973740ed21ea30bf3d7e7338e01622d824b70d",
+    "chart_noise20-t-128.png": "e0277be4a86f441b39f612f33bb1e6b7e2e36caa11780591d2f54c31c8510d50",
+    "chart_noise20-t-160.png": "62cf8e9bfefefb3443f36585dfde59a5aa6615daedf92104340b0aa238c48db9",
+    "chart_noise20-t-200.png": "8e71b43dcd82f64445907e095a5890770223630876ebf2970f8266b4c22cb6a4",
+    "chart_noise20-t-64.png": "755f2f8cf4b8d2a65dc019846fcca77c43d392771acdd1771b54c45049466ddf",
+    "chart_noise20.png": "ef27a5492870f8bfa7b037877500ea5e3604d97dcd59a93874ae54cbc238a33a",
+    "chart_normal-otsu-75.png": "6299cc83294fe8c459b990645bc46d00e8b39b83ea64ef6ec19306166ba5ec16",
+    "chart_normal-t-100.png": "e441fb6cd66bd7bd5fd91da0a7118662112e078b259b85fcd361d1f82363df2d",
+    "chart_normal-t-128.png": "47c3a1a3a91cca02132220ecc17ac4f4c668f279029147f5508a8a2b859d6a12",
+    "chart_normal-t-160.png": "4b62fec9b81a74bc4501ba76af1213c9c62c0a6b82022a9a7c229d068d981329",
+    "chart_normal-t-200.png": "ebc907368fea2e5adb0076cceb85653f74ce143756f7e370587c1d1f58851733",
+    "chart_normal-t-64.png": "c1d4be131fe59b99746befd29cb12610a46ffd4f6fa0a1f20f529f08dbbcc7a5",
+    "chart_normal.png": "4c42c8d33d1c2b0f552665990560c55e28b68b9d09bda7c9922dc5e862cc9a88",
+    "chart_over-otsu-174.png": "ecdc1483987d6aeb5b71e0c5e52085a0a47f4cbbf18637288d6f6f90d633f159",
+    "chart_over-t-100.png": "5c68f41ea0afcbbd939753157f4126f91a556f2d5166160feeedf1fa8bd0630e",
+    "chart_over-t-128.png": "5c68f41ea0afcbbd939753157f4126f91a556f2d5166160feeedf1fa8bd0630e",
+    "chart_over-t-160.png": "4fff1152ba45cf2bb498b513096bd3a42b4db5458d807465bea89a3a64606d67",
+    "chart_over-t-200.png": "766b03978cc5299233eb6f6670562bb857987a337044435806a4e6551c1c53f6",
+    "chart_over-t-64.png": "5c68f41ea0afcbbd939753157f4126f91a556f2d5166160feeedf1fa8bd0630e",
+    "chart_over.png": "77a76e7ad85fb301505637e183d1d2c22beda7ad92e7b6379bf529853767681e",
+    "chart_under-otsu-34.png": "6299cc83294fe8c459b990645bc46d00e8b39b83ea64ef6ec19306166ba5ec16",
+    "chart_under-t-100.png": "627b2596cd1b09e3cc198048ea70f9257ad7f459733c29feabbd51d5653a7c37",
+    "chart_under-t-128.png": "3f4d71b63cd17da7aeda885c59160ea2e69ed17cfc27915ffaffe7f874e1b95c",
+    "chart_under-t-160.png": "3f4d71b63cd17da7aeda885c59160ea2e69ed17cfc27915ffaffe7f874e1b95c",
+    "chart_under-t-200.png": "3f4d71b63cd17da7aeda885c59160ea2e69ed17cfc27915ffaffe7f874e1b95c",
+    "chart_under-t-64.png": "6c18fa61ca4a8355211b40a5f1aaa8d89b8135fb93242484151a17a6b533c2ff",
+    "chart_under.png": "6507cd421f9181458ca4c9143b2cad490f1e4fceb876f066feaa517060a4c81f",
+    "comparison.png": "ada261b227342010f5548a31560682c76eb4b6ad4bf8ef106db3d11bb4fe47d8",
+    "lenna_gray-otsu-119.png": "f52eb3dcccadec1af96b65f434335d5424f24ef15da87e6b5522a789b6b0c6f4",
+    "lenna_gray-t-100.png": "44a49a12100f21bd663c341b11d2b231ea6e6ed3ab788e648239b0184d2019c4",
+    "lenna_gray-t-128.png": "e18cf1b3a1efd86a49472079819ff8d9a6be41436f5895ee85c5cb0834ee1722",
+    "lenna_gray-t-160.png": "2aa962a7ff9efbe5601e00129602e8b0a5c232ead75de35de7a0ce21a81d4b8a",
+    "lenna_gray-t-200.png": "241eac7dbd8bcce9f904b31c54e34ebe34ffa0f2395d6423244c674ca5f05af7",
+    "lenna_gray-t-64.png": "7eab5cf8879e8c9ef15a80d78ecea30cbbfa1e173c13cb9ae98cac34170fda19",
+    "lenna_gray.png": "4e7367c53aa9f76a7124eacc24ddbcf8cc0ce62f2ec5175617a9529fb6ccbe09"
+  }
+}

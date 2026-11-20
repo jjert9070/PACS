@@ -1,0 +1,177 @@
+{
+  "algorithm_id": "gamma_correction",
+  "algorithm_version": "1.0.0",
+  "parameters": {
+    "gamma": [
+      0.5,
+      0.8,
+      1.0,
+      1.5,
+      2.2
+    ],
+    "lut": {
+      "0.5": [
+        0,
+        90,
+        128,
+        181,
+        221,
+        255
+      ],
+      "0.8": [
+        0,
+        48,
+        84,
+        147,
+        203,
+        255
+      ],
+      "1.0": [
+        0,
+        32,
+        64,
+        128,
+        192,
+        255
+      ],
+      "1.5": [
+        0,
+        11,
+        32,
+        91,
+        167,
+        255
+      ],
+      "2.2": [
+        0,
+        3,
+        12,
+        56,
+        137,
+        255
+      ]
+    }
+  },
+  "python": "3.12.14",
+  "numpy": "2.2.6",
+  "opencv": "4.12.0",
+  "pillow": "12.3.0",
+  "roi_calculation": {
+    "numpy": "2.2.6",
+    "pillow": "12.3.0",
+    "brightness_method": "pillow_L_v1",
+    "variance_definition": "population",
+    "ddof": 0,
+    "calculation_dtype": "float64"
+  },
+  "seed": 20261115,
+  "generator": "numpy.random.Generator(PCG64)",
+  "noise_sigma": 20,
+  "noise_policy": "one L noise field copied to R, G, B; float64 addition, np.rint, clip 0..255",
+  "exposure": {
+    "under": "x*0.45",
+    "over": "255-(255-x)*0.45",
+    "rounding": "np.rint"
+  },
+  "chart": {
+    "ramp_rows": [
+      0,
+      32
+    ],
+    "background": 60,
+    "object": 180,
+    "dark_patch": [
+      [
+        20,
+        44,
+        50,
+        74
+      ],
+      75
+    ],
+    "bright_block": [
+      [
+        180,
+        40,
+        250,
+        90
+      ],
+      210
+    ],
+    "bright_patch": [
+      [
+        200,
+        50,
+        230,
+        80
+      ],
+      225
+    ],
+    "rois": {
+      "dark_patch": [
+        20,
+        44,
+        50,
+        74
+      ],
+      "dark_background": [
+        56,
+        44,
+        86,
+        74
+      ],
+      "bright_patch": [
+        200,
+        50,
+        230,
+        80
+      ],
+      "object": [
+        70,
+        120,
+        110,
+        160
+      ],
+      "background": [
+        12,
+        200,
+        42,
+        240
+      ]
+    }
+  },
+  "lenna": "experiments/Lenna.png, INTER_AREA 256x256, Pillow L copied to RGB (same as Gaussian experiment)",
+  "file_sha256": {
+    "chart_noise20-gamma-0.5.png": "5da7da1592ea54ed2cca157dcb85bd4e5f1b012226dbc30f853f83f39538f8d6",
+    "chart_noise20-gamma-0.8.png": "0bab6c8d7b3352274db9a0b5de8f5e602e12f4a0201ad493ec7ab4c1097b8303",
+    "chart_noise20-gamma-1.5.png": "5ee2aa88659393e09277e93cb9db9130342483da31006ce12ac717df25081e36",
+    "chart_noise20-gamma-1.png": "ef27a5492870f8bfa7b037877500ea5e3604d97dcd59a93874ae54cbc238a33a",
+    "chart_noise20-gamma-2.2.png": "8cd08a6cd8bbca803b2de2fe41b06ca7660bf2063e98e5b3139ff132c1bd57e3",
+    "chart_noise20.png": "ef27a5492870f8bfa7b037877500ea5e3604d97dcd59a93874ae54cbc238a33a",
+    "chart_normal-gamma-0.5.png": "7416f6a1bfbfc8c97779a8c2496f310329f43e62330486027793625c3622330e",
+    "chart_normal-gamma-0.8.png": "185980b5cd0a532ce49b70e5793833314033db57d0df4426c0c2f6fde92e08cb",
+    "chart_normal-gamma-1.5.png": "5099be9023d5c534dec8ecc421e46eb74b43d8625ba2f59134fb699e91cbd19e",
+    "chart_normal-gamma-1.png": "4c42c8d33d1c2b0f552665990560c55e28b68b9d09bda7c9922dc5e862cc9a88",
+    "chart_normal-gamma-2.2.png": "d72ba5407dbfad878d7c37bdcdb2ff2e694deb1923be0740df2bce6430d9ee6c",
+    "chart_normal.png": "4c42c8d33d1c2b0f552665990560c55e28b68b9d09bda7c9922dc5e862cc9a88",
+    "chart_over-gamma-0.5.png": "22a98df94493887487fb67ad8242bb30a01a5337bb301d80d143daec98755da6",
+    "chart_over-gamma-0.8.png": "7eea97c695f4b75885010028d1192117b1f760b0dd75138d5292b0aace108a3c",
+    "chart_over-gamma-1.5.png": "3720af21a695c743753f90cfd19ac4ac7c6880ad15967b2df8f0c2dbe71226d3",
+    "chart_over-gamma-1.png": "77a76e7ad85fb301505637e183d1d2c22beda7ad92e7b6379bf529853767681e",
+    "chart_over-gamma-2.2.png": "4edad230e16a977385547cda6029b7c35943bdb42377d034f568180380bd2602",
+    "chart_over.png": "77a76e7ad85fb301505637e183d1d2c22beda7ad92e7b6379bf529853767681e",
+    "chart_under-gamma-0.5.png": "4166d6da155dd00e9017b34ae8c636d81a613c7550dc124f92927611e6e4ba93",
+    "chart_under-gamma-0.8.png": "62e0522cd21b7fc8305b4950ba612529047afd9fc12af011e90e1b1dcd593852",
+    "chart_under-gamma-1.5.png": "88cff2566cf13578585cb66a601f3ba5526f7d5ed1ad98d7a6c893889e8d1895",
+    "chart_under-gamma-1.png": "6507cd421f9181458ca4c9143b2cad490f1e4fceb876f066feaa517060a4c81f",
+    "chart_under-gamma-2.2.png": "dafccd19ee06d8dbfa0c095dd1f29f9069cab28cd91befc98f8580bfdd9e77d3",
+    "chart_under.png": "6507cd421f9181458ca4c9143b2cad490f1e4fceb876f066feaa517060a4c81f",
+    "comparison.png": "fd3fc784bbacef715529a5b9ac32f7984b57e0ee4d6de274adcd3623df20af52",
+    "lenna_gray-gamma-0.5.png": "5e3a6acfc8a24fbedb24fb6ea89e8d412d6c91b2c9129bc3ae9cd6cf1411cb5c",
+    "lenna_gray-gamma-0.8.png": "272f7e7ea1c8a9bada2725f9398b854079f62c886ebff60e03b0dbbc7216ba78",
+    "lenna_gray-gamma-1.5.png": "b0cf6ddd393d8bc16b1ca0879a57638bc9c9dea264382218f23d028fa642cc50",
+    "lenna_gray-gamma-1.png": "4e7367c53aa9f76a7124eacc24ddbcf8cc0ce62f2ec5175617a9529fb6ccbe09",
+    "lenna_gray-gamma-2.2.png": "5fc4399f3289b45514cc621e5c2b02ffe1ed789f5f114b53d9b8a2e54d358605",
+    "lenna_gray.png": "4e7367c53aa9f76a7124eacc24ddbcf8cc0ce62f2ec5175617a9529fb6ccbe09"
+  }
+}
