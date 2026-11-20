@@ -153,9 +153,9 @@ class DisplayMappingTests(unittest.TestCase):
         self.assertEqual(mapped.tolist(), [[0, 0], [0, 0]])
         self.assertEqual((mapping.method, mapping.width), ("min_max", 0.0))
 
-    def test_width_below_one_falls_back_to_min_max(self):
-        _, mapping = display_values(np.array([[0.0, 10.0]]), 5, 0.5, False)
-        self.assertEqual(mapping.method, "min_max")
+    def test_width_below_one_is_rejected(self):
+        with self.assertRaises(DicomInvalidValueError):
+            display_values(np.array([[0.0, 10.0]]), 5, 0.5, False)
 
 
 class ErrorTests(unittest.TestCase):
