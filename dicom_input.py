@@ -42,7 +42,7 @@ from pydicom.uid import (
 
 from viewer import MAX_FILE_BYTES, MAX_PIXELS, ViewerInputError, ViewerSource
 
-DISPLAY_MAPPING_VERSION = "1.1.0"
+DISPLAY_MAPPING_VERSION = "1.1.1"
 SUPPORTED_TRANSFER_SYNTAXES = {
     str(ImplicitVRLittleEndian): "Implicit VR Little Endian",
     str(ExplicitVRLittleEndian): "Explicit VR Little Endian",
@@ -226,13 +226,16 @@ def display_values(modality_values: np.ndarray, center: float | None, width: flo
     _validate_window(center, width)
     if center is not None:
         if width == 1:
-            mapped = np.where(values <= center - 0.5, 0.0, 255.0)
+            threshold = center - 0.5
+            # A rounded-up boundary must not classify a value above the exact threshold as black.
+            if math.fsum((center, -0.5, -threshold)) < 0:
+                threshold = math.nextafter(threshold, -math.inf)
+            mapped = np.where(values <= threshold, 0.0, 255.0)
         else:
-            low = center - 0.5 - (width - 1) / 2
-            high = center - 0.5 + (width - 1) / 2
-            # Clip first so out-of-window values do not overflow intermediate arithmetic.
+            # Subtract the center before adding half a unit; c - 0.5 can round back to c.
             with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                mapped = ((np.clip(values, low, high) - (center - 0.5)) / (width - 1) + 0.5) * 255.0
+                scaled = ((values - center) + 0.5) / (width - 1) + 0.5
+                mapped = np.clip(scaled, 0.0, 1.0) * 255.0
         mapping = DisplayMapping("dicom_window", float(center), float(width), inverted)
     else:
         lowest, highest = float(values.min()), float(values.max())
