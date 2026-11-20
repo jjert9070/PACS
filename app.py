@@ -10,12 +10,14 @@ from case_records_ui import render_case_records, _dirty as case_has_unsaved_chan
 from case_processing import processing_from_state
 from gaussian_ui import process_gaussian, render_gaussian_controls
 from roi_ui import render_roi_controls, render_roi_statistics
+from patient_study_ui import clear_patient_state, render_patient_studies
 
 
 def clear_session() -> None:
     st.session_state.pop("pacs_session", None)
     clear_viewer()
     clear_cases()
+    clear_patient_state()
 
 
 def allow_viewer_source_change() -> bool:
@@ -76,7 +78,14 @@ def main() -> None:
     if st.session_state.get("case_owner") != session.uid:
         clear_cases()
         clear_viewer()
+        clear_patient_state()
         st.session_state["case_owner"] = session.uid
+    with st.expander("환자·검사 선택과 영상 등록", expanded=True):
+        try:
+            render_patient_studies(project_id, session)
+        except FirebaseRequestError:
+            clear_session()
+            st.rerun()
     stored_source = None
     if st.session_state.get("viewer_stored_owner") == session.uid:
         stored_source = st.session_state.get("viewer_stored_source")
@@ -88,6 +97,8 @@ def main() -> None:
                            stored_result=st.session_state.get("viewer_stored_result") if stored_source else None,
                            processing_record=st.session_state.get("viewer_current_processing"),
                            stored_processing=st.session_state.get("viewer_stored_processing") if stored_source else None,
+                           selected_source=st.session_state.get("patient_ui_source"),
+                           selected_context=st.session_state.get("patient_ui_context"),
                            allow_source_change=allow_viewer_source_change)
 
     try:
@@ -101,8 +112,11 @@ def main() -> None:
 
     with st.expander("케이스 등록과 다시 열기, 변경 이력"):
         try:
+            case_source = source if source is None or source.file_format in {"PNG", "JPEG"} else None
+            if source is not None and case_source is None:
+                st.info("DICOM 원본은 위 환자·검사 등록 영역에서 저장하세요. 이 케이스 저장은 PNG/JPEG용이며 DICOM 처리 결과와 ROI는 현재 세션에 유지됩니다.")
             render_case_records(
-                project_id, session, source,
+                project_id, session, case_source,
                 processing=processing,
                 processing_error=st.session_state.get("viewer_processing_contract_error"),
             )
@@ -111,7 +125,7 @@ def main() -> None:
             st.rerun()
 
     with st.expander("개발용 로컬 원본 저장과 재열기"):
-        render_local_storage(session, source)
+        render_local_storage(session, case_source)
 
     with st.expander("이전 단계: 제목과 메모만 저장"):
         try:
