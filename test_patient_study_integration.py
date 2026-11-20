@@ -167,6 +167,35 @@ class PatientStudyIntegrationTests(unittest.TestCase):
         self.assertEqual(fresh.session_state["viewer_active_source"].original_bytes, data)
         self.assertIsNone(fresh.session_state["viewer_displayed_result"])
 
+    def test_registration_refreshes_series_in_the_same_button_action(self):
+        app, imported, data = self.create(self.app())
+        upload = NS(name="ct.dcm", getvalue=lambda: data)
+        register = self.api.flow.register_dicom_file
+        with patch("streamlit.file_uploader", side_effect=lambda *a, **kw: [upload] if kw.get("key") == "patient_ui_register_files" else None):
+            app.run()
+            app.text_input(key="patient_ui_register_series").set_value(imported.series_uid)
+            with patch("dicom_storage_flow.register_dicom_file", wraps=register) as submit:
+                app.button(key="patient_ui_register").click().run()
+                self.assertEqual(submit.call_count, 1)
+        self.assertFalse(app.exception)
+        self.assertTrue(any((button.key or "").startswith("patient_ui_series_choose_")
+                            and imported.series_uid in button.label for button in app.button))
+        self.assertTrue(any("연결 완료 1개" in item.value for item in app.caption))
+        self.assertEqual(len(list(self.root.rglob("*.dcm"))), 1)
+
+    def test_dicom_display_value_notice_is_single_before_and_after_roi(self):
+        app, imported, data = self.create(self.app())
+        self.register(app, imported, [("ct.dcm", data)])
+        self.open(app, imported)
+        self.assertEqual(sum("CT HU" in item.value for item in app.caption), 1)
+        next(button for button in app.button if button.label == "ROI 적용").click().run()
+        self.assertFalse(app.exception)
+        notices = [item.value for item in app.caption if "CT HU" in item.value]
+        self.assertEqual(len(notices), 1)
+        self.assertIn("0~255", notices[0])
+        self.assertIn("물리 단위", notices[0])
+        self.assertEqual(app.session_state["viewer_active_source"].original_bytes, data)
+
     def test_actual_details_reload_and_hidden_draft_preserve_updates(self):
         app, imported, _ = self.create(self.app())
         study_id = imported.study_uid

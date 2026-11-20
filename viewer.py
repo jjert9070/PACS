@@ -282,7 +282,8 @@ def render_viewer(
             st.caption(f"영상 {selected_context['object_id']} / 프레임 1/{selected_context['frame_count']} · 내부 프레임 번호 0")
             st.caption("좌표: 표시 RGB 원본의 좌상단 원점, 정수 픽셀, ROI 오른쪽·아래 끝 제외. 실제 길이 측정 미지원.")
         if source.file_format == "DICOM":
-            st.caption("DICOM 처리·ROI 통계는 B가 만든 8비트 표시값 기준이며 CT HU가 아닙니다. 원본 DICOM 바이트는 보존합니다.")
+            st.caption("DICOM 처리와 ROI 통계는 표시 변환으로 만든 0~255 표시값 기준입니다. "
+                       "CT HU 등 원본 저장값이나 물리 단위가 아니며, 원본 DICOM 바이트는 보존합니다.")
 
     from case_processing import validate_processing, show_processing
 

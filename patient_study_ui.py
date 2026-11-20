@@ -303,6 +303,7 @@ def _registration(api, project_id, session, study):
                                  accept_multiple_files=True, max_upload_size=20, key=PREFIX + "register_files")
         if st.button("선택 원본 등록", key=PREFIX + "register", disabled=not files):
             register_files(api, project_id, session, study, [(f.name, f.getvalue()) for f in files])
+            st.rerun()
         for kind, name, result in st.session_state.get(PREFIX + "registration_results", []):
             _registration_result(kind, name, result)
         results = st.session_state.get(PREFIX + "registration_results", [])
