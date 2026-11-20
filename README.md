@@ -4,6 +4,12 @@
 
 [B와 C 통합 수동 검증 체크리스트](docs/manual-bc-checklist.md)에서 직접 누를 순서와 통과 기준을 확인할 수 있다.
 
+## 현재 ABC의 DICOM 지원
+
+`intergrationABC`에서는 단일 프레임 흑백 DICOM의 비압축 Little Endian, JPEG 2000 Lossless, JPEG 2000과 RLE Lossless를 지원한다. JPEG Baseline과 JPEG-LS, 컬러 및 다중 프레임은 아직 지원하지 않는다. 파일은 20MB 이하이며 압축 원본의 바이트와 해시를 그대로 보관한다. JPEG 2000 `.91`은 손실 압축을 포함하므로 무손실로 간주하지 않는다.
+
+의존성은 `uv sync --locked`로 설치하고 실행 중인 Streamlit은 재시작한다. [지원 조건과 검사 방법](docs/image-processing/dicom-input.md), [ABC 화면과 검증 기록](docs/patient-study-ui.md)을 참고한다. 발급 주체가 없는 입력은 정상 등록을 차단하며 자동 기본값이나 이름으로 환자를 연결하지 않는다.
+
 ## BC 통합 기능
 
 | 기능 | 현재 동작 |

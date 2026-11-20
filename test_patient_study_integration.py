@@ -167,6 +167,34 @@ class PatientStudyIntegrationTests(unittest.TestCase):
         self.assertEqual(fresh.session_state["viewer_active_source"].original_bytes, data)
         self.assertIsNone(fresh.session_state["viewer_displayed_result"])
 
+    def test_actual_details_reload_and_hidden_draft_preserve_updates(self):
+        app, imported, _ = self.create(self.app())
+        study_id = imported.study_uid
+        session = app.session_state["pacs_session"]
+        initial = self.api.details.StudyDetails(study_id)
+        self.api.details.save_study_details("p", session, initial)
+        app.button(key="patient_ui_details_reload").click().run()
+        before = self.api.details.get_study_details("p", session, study_id)
+        latest = self.api.details.StudyDetails(study_id, "2026-11-18", "confirmed", "partial")
+        self.api.details.save_study_details("p", session, latest, before.update_time)
+        app.button(key="patient_ui_details_reload").click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.text_input(key="patient_ui_date").value, latest.acquired_on)
+        app.button(key="patient_ui_details_save").click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(self.api.details.get_study_details("p", session, study_id).details, latest)
+        app.text_input(key="patient_ui_date").set_value("2026-11-19")
+        app.selectbox(key="patient_ui_linkage").select("보류")
+        app.selectbox(key="patient_ui_receipt").select("수신 실패").run()
+        app.checkbox(key="patient_ui_enabled").uncheck().run()
+        app.run()
+        app.checkbox(key="patient_ui_enabled").check().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.text_input(key="patient_ui_date").value, "2026-11-19")
+        self.assertEqual(app.selectbox(key="patient_ui_linkage").value, "보류")
+        self.assertEqual(app.selectbox(key="patient_ui_receipt").value, "수신 실패")
+        self.assertEqual(self.api.details.get_study_details("p", session, study_id).details, latest)
+
     def test_connection_failure_is_incomplete_and_new_app_retries_same_stored_sop(self):
         app, imported, data = self.create(self.app())
         self.cloud.deny_instances = True

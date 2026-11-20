@@ -312,6 +312,103 @@ class PatientStudyScreenTests(unittest.TestCase):
         self.assertEqual(app.session_state["patient_ui_context"]["acquired_on"], "2026-11-18")
         self.assertNotIn("수신 완료", app.selectbox(key="patient_ui_receipt").options)
 
+    def test_clean_details_reload_updates_fields_baseline_and_save_version(self):
+        app = self.selected()
+        latest = Details("1.2.3", "2026-11-18", "confirmed", "partial")
+        self.api.details.get_study_details.side_effect = None
+        self.api.details.get_study_details.return_value = NS(details=latest, update_time="v2")
+        app.button(key="patient_ui_details_reload").click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.text_input(key="patient_ui_date").value, latest.acquired_on)
+        self.assertEqual(app.selectbox(key="patient_ui_linkage").value, "확인됨")
+        self.assertEqual(app.selectbox(key="patient_ui_receipt").value, "일부 수신")
+        self.assertEqual(app.session_state["patient_ui_details_initial"],
+                         (latest.acquired_on, "확인됨", "일부 수신"))
+        app.button(key="patient_ui_details_save").click().run()
+        self.assertFalse(app.exception)
+        self.api.details.save_study_details.assert_called_once_with(
+            "p", unittest.mock.ANY, latest, "v2")
+
+    def test_dirty_details_reload_keeps_all_draft_fields_and_blocks_switch(self):
+        app = self.selected()
+        app.text_input(key="patient_ui_date").set_value("2026-11-19")
+        app.selectbox(key="patient_ui_linkage").select("보류")
+        app.selectbox(key="patient_ui_receipt").select("수신 실패").run()
+        self.api.details.get_study_details.side_effect = None
+        latest = Details("1.2.3", "2026-11-18", "confirmed", "partial")
+        self.api.details.get_study_details.return_value = NS(details=latest, update_time="v2")
+        app.button(key="patient_ui_details_reload").click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.text_input(key="patient_ui_date").value, "2026-11-19")
+        self.assertEqual(app.selectbox(key="patient_ui_linkage").value, "보류")
+        self.assertEqual(app.selectbox(key="patient_ui_receipt").value, "수신 실패")
+        self.assertEqual(app.session_state["patient_ui_details_saved"], (latest, "v2"))
+        app.button(key="patient_ui_patients_choose_1").click().run()
+        self.assertEqual(app.session_state["patient_ui_patient"], self.api.patients[0])
+        self.assertTrue(any("저장하지 않은 변경" in w.value for w in app.warning))
+
+    def test_details_panel_toggle_preserves_saved_and_unsaved_fields(self):
+        for edited in (False, True):
+            with self.subTest(edited=edited):
+                self.api.details.get_study_details.side_effect = None
+                self.api.details.get_study_details.return_value = NS(
+                    details=Details("1.2.3", "2026-11-18", "confirmed", "partial"), update_time="v1")
+                app = self.selected()
+                expected = ("2026-11-18", "확인됨", "일부 수신")
+                if edited:
+                    expected = ("2026-11-19", "보류", "수신 실패")
+                    app.text_input(key="patient_ui_date").set_value(expected[0])
+                    app.selectbox(key="patient_ui_linkage").select(expected[1])
+                    app.selectbox(key="patient_ui_receipt").select(expected[2]).run()
+                baseline = app.session_state["patient_ui_details_initial"]
+                app.checkbox(key="patient_ui_enabled").uncheck().run()
+                app.run()
+                app.run()
+                self.assertEqual(app.session_state["patient_ui_date"], expected[0])
+                app.checkbox(key="patient_ui_enabled").check().run()
+                self.assertFalse(app.exception)
+                actual = (app.text_input(key="patient_ui_date").value,
+                          app.selectbox(key="patient_ui_linkage").value,
+                          app.selectbox(key="patient_ui_receipt").value)
+                self.assertEqual(actual, expected)
+                self.assertEqual(app.session_state["patient_ui_details_initial"], baseline)
+
+    def test_successful_details_save_refreshes_fields_from_latest_read(self):
+        app = self.selected()
+        app.text_input(key="patient_ui_date").set_value("2026-11-19").run()
+        latest = Details("1.2.3", "2026-11-20", "confirmed", "partial")
+        self.api.details.get_study_details.side_effect = None
+        self.api.details.get_study_details.return_value = NS(details=latest, update_time="v3")
+        app.button(key="patient_ui_details_save").click().run()
+        self.assertFalse(app.exception)
+        self.api.details.save_study_details.assert_called_once_with(
+            "p", unittest.mock.ANY, Details("1.2.3", "2026-11-19"), "v1")
+        self.assertEqual(app.text_input(key="patient_ui_date").value, latest.acquired_on)
+        self.assertEqual(app.session_state["patient_ui_details_initial"],
+                         (latest.acquired_on, "확인됨", "일부 수신"))
+
+    def test_details_retry_initial_failure_initializes_latest_fields(self):
+        self.api.details.get_study_details.side_effect = FirebaseRequestError(503)
+        app = self.selected()
+        self.api.details.get_study_details.side_effect = None
+        latest = Details("1.2.3", "2026-11-18", "confirmed", "partial")
+        self.api.details.get_study_details.return_value = NS(details=latest, update_time="v2")
+        app.button(key="patient_ui_details_reload").click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.text_input(key="patient_ui_date").value, latest.acquired_on)
+        self.assertEqual(app.session_state["patient_ui_details_initial"],
+                         (latest.acquired_on, "확인됨", "일부 수신"))
+
+    def test_hidden_details_draft_is_cleared_when_owner_changes(self):
+        app = self.selected()
+        app.text_input(key="patient_ui_date").set_value("2026-11-19").run()
+        app.checkbox(key="patient_ui_enabled").uncheck().run()
+        app.session_state["pacs_session"] = Session("other", "other", "token", float("inf"))
+        app.run()
+        self.assertFalse(app.exception)
+        self.assertNotIn("patient_ui_date", app.session_state.filtered_state)
+        self.assertNotIn("patient_ui_details_initial", app.session_state.filtered_state)
+
     def test_permission_denial_and_expired_session_do_not_leak_previous_selection(self):
         app = self.selected()
         self.api.store.list_patients.side_effect = FirebaseRequestError(403)

@@ -181,7 +181,7 @@ def _load_details(api, project_id, session, study, preserve=False):
     if context and context["study_id"] == study.study_id and version is not None:
         st.session_state[PREFIX + "context"] = dict(context, acquired_on=details.acquired_on or "미상")
     st.session_state.pop(PREFIX + "details_error", None)
-    if not preserve:
+    if not preserve or not details_dirty():
         values = (details.acquired_on,
                   next(k for k, v in LINKAGES.items() if v == details.linkage_status),
                   next(k for k, v in RECEIPTS.items() if v == details.receipt_status))
@@ -420,6 +420,11 @@ def render_patient_studies(project_id, session):
         clear_patient_state()
         st.session_state[PREFIX + "enabled"] = enabled
         st.session_state[PREFIX + "owner"] = owner
+    # Reassign hidden widget values so Streamlit does not discard the detail draft.
+    for suffix in ("date", "linkage", "receipt"):
+        key = PREFIX + suffix
+        if key in st.session_state:
+            st.session_state[key] = st.session_state[key]
     if not st.checkbox("환자·검사 목록 사용", key=PREFIX + "enabled"):
         return
     try:

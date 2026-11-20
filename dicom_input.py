@@ -4,7 +4,7 @@ Scope of this stage (Issue #23). Anything else is rejected with a reason; nothin
 is silently converted:
 
 - DICOM Part 10 files (128-byte preamble + "DICM") up to 20 MB, as for PNG/JPEG.
-- Transfer syntax: Implicit or Explicit VR Little Endian (uncompressed) only.
+- Transfer syntax: uncompressed Little Endian, JPEG 2000 and RLE Lossless.
 - SOP Class: CT, MR, CR, DX (for presentation) and Secondary Capture image storage.
 - One frame, one sample per pixel, MONOCHROME1 or MONOCHROME2, 8 or 16 bits allocated.
 
@@ -29,14 +29,19 @@ from PIL import Image
 from pydicom import __version__ as pydicom_version
 from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
+from pydicom.encaps import generate_frames
 from pydicom.multival import MultiValue
+from pydicom.pixels import get_decoder, pixel_array
 from pydicom.uid import (
     CTImageStorage,
     ComputedRadiographyImageStorage,
     DigitalXRayImageStorageForPresentation,
     ExplicitVRLittleEndian,
     ImplicitVRLittleEndian,
+    JPEG2000,
+    JPEG2000Lossless,
     MRImageStorage,
+    RLELossless,
     SecondaryCaptureImageStorage,
 )
 
@@ -46,6 +51,14 @@ DISPLAY_MAPPING_VERSION = "1.1.1"
 SUPPORTED_TRANSFER_SYNTAXES = {
     str(ImplicitVRLittleEndian): "Implicit VR Little Endian",
     str(ExplicitVRLittleEndian): "Explicit VR Little Endian",
+    str(JPEG2000Lossless): "JPEG 2000 Lossless",
+    str(JPEG2000): "JPEG 2000",
+    str(RLELossless): "RLE Lossless",
+}
+COMPRESSED_PLUGINS = {
+    str(JPEG2000Lossless): "pylibjpeg",
+    str(JPEG2000): "pylibjpeg",
+    str(RLELossless): "pydicom",
 }
 SUPPORTED_SOP_CLASSES = {
     str(CTImageStorage): "CT Image Storage",
@@ -252,6 +265,31 @@ def display_values(modality_values: np.ndarray, center: float | None, width: flo
     return result, mapping
 
 
+def _compressed_pixels(ds) -> np.ndarray:
+    syntax = str(ds.file_meta.TransferSyntaxUID)
+    plugin = COMPRESSED_PLUGINS[syntax]
+    if plugin not in get_decoder(syntax).available_plugins:
+        raise DicomUnsupportedError("압축 DICOM 디코더가 설치되지 않았습니다. 잠금 파일의 의존성을 설치하세요.")
+    try:
+        frames = list(generate_frames(ds.PixelData, number_of_frames=1))
+        if len(frames) != 1:
+            raise DicomUnsupportedError("압축 원본에도 프레임이 정확히 1개 있어야 합니다.")
+        if plugin == "pylibjpeg":
+            from openjpeg import get_parameters
+
+            # Check the codestream dimensions before allocating its decoded pixels.
+            header = get_parameters(frames[0])
+            if (header["rows"] != ds.Rows or header["columns"] != ds.Columns
+                    or header["samples_per_pixel"] != 1 or header["precision"] != ds.BitsStored
+                    or header["is_signed"] != bool(ds.PixelRepresentation)):
+                raise DicomInvalidValueError("JPEG 2000 헤더와 DICOM의 크기, 채널 또는 픽셀 형식이 다릅니다.")
+        return pixel_array(ds, raw=True, decoding_plugin=plugin)
+    except DicomReadError:
+        raise
+    except Exception as error:
+        raise DicomCorruptError("압축 픽셀 데이터를 해석하지 못했습니다. 파일 손상과 압축 형식을 확인하세요.") from error
+
+
 def _inspect_dicom(data: bytes):
     """Validate original bytes and pixels without allocating a display image.
 
@@ -280,7 +318,7 @@ def _inspect_dicom(data: bytes):
         raise DicomMissingTagError("필수 정보가 없습니다: TransferSyntaxUID (File Meta)")
     if transfer_syntax not in SUPPORTED_TRANSFER_SYNTAXES:
         raise DicomUnsupportedError(f"지원하지 않는 전송 구문입니다: {transfer_syntax}. "
-                                    "이번 단계는 비압축 Little Endian만 지원합니다.")
+                                    "비압축 Little Endian, JPEG 2000과 RLE Lossless만 지원합니다.")
 
     sop_class = _uid(ds, "SOPClassUID")
     if sop_class not in SUPPORTED_SOP_CLASSES:
@@ -319,10 +357,13 @@ def _inspect_dicom(data: bytes):
         raise DicomUnsupportedError("영상 크기는 1픽셀 이상, 2,000만 픽셀 이하여야 합니다.")
     expected = rows * columns * allocated // 8
     pixel_bytes = ds.PixelData
-    if not isinstance(pixel_bytes, (bytes, bytearray)) or len(pixel_bytes) < expected:
+    compressed = transfer_syntax in COMPRESSED_PLUGINS
+    if not isinstance(pixel_bytes, (bytes, bytearray)) or (not compressed and len(pixel_bytes) < expected):
         raise DicomCorruptError(f"픽셀 데이터가 부족합니다 (필요 {expected}바이트). 파일이 잘렸는지 확인하세요.")
     try:
-        stored_pixels = np.array(ds.pixel_array, copy=True)
+        stored_pixels = np.array(_compressed_pixels(ds) if compressed else ds.pixel_array, copy=True)
+    except DicomReadError:
+        raise
     except Exception as error:  # pydicom raises several types for broken pixel data
         raise DicomCorruptError("픽셀 데이터를 해석하지 못했습니다.") from error
     if stored_pixels.shape != (rows, columns):

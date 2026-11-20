@@ -237,7 +237,7 @@ def render_viewer(
                 uploaded = st.file_uploader("PNG/JPEG/DICOM 영상 열기", type=["png", "jpg", "jpeg", "dcm"],
                                             max_upload_size=20, key="viewer_upload")
                 st.caption("공개 또는 합성 영상을 사용하세요.")
-                st.caption("DICOM: 비압축 Little Endian, 단일 프레임 흑백 CT·MR·CR·DX·Secondary Capture만 지원합니다. 압축·다중 프레임·컬러는 오류로 안내합니다.")
+                st.caption("DICOM: 비압축 Little Endian, JPEG 2000과 RLE Lossless의 단일 프레임 흑백 영상을 지원합니다. 다른 압축 형식과 다중 프레임, 컬러는 지원하지 않습니다.")
             if uploaded is not None:
                 source = load_viewer_source(uploaded.name, uploaded.getvalue())
     except ViewerInputError as error:
