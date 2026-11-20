@@ -98,7 +98,7 @@ def load_image(name: str, data: bytes) -> ViewerSource:
     suffix = Path(name).suffix.lower()
     expected = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG"}.get(suffix)
     if expected is None:
-        raise ViewerInputError("PNG 또는 JPEG 파일만 열 수 있습니다. DICOM은 아직 지원하지 않습니다.")
+        raise ViewerInputError("이 입력은 PNG 또는 JPEG 파일이어야 합니다.")
     if not data or len(data) > MAX_FILE_BYTES:
         raise ViewerInputError("비어 있는 파일이거나 파일 크기가 20 MB를 초과했습니다.")
     if expected == "PNG":
@@ -130,6 +130,19 @@ def load_image(name: str, data: bytes) -> ViewerSource:
             Image.DecompressionBombWarning, Image.DecompressionBombError) as error:
         raise ViewerInputError("영상 파일을 읽을 수 없습니다. 손상 여부와 파일 형식을 확인하세요.") from error
     return ViewerSource(sha256(data).hexdigest(), name, expected, len(data), image, original_bytes=data)
+
+
+def load_viewer_source(name: str, data: bytes) -> ViewerSource:
+    """Display entry point; the PNG/JPEG storage validator stays format-specific."""
+    if Path(name).suffix.lower() != ".dcm":
+        return load_image(name, data)
+    try:
+        from dicom_input import load_dicom_source
+    except ModuleNotFoundError as error:
+        if error.name not in {"dicom_input", "pydicom"}:
+            raise
+        raise ViewerInputError("DICOM 표시 기능에 연결할 수 없습니다. 서비스 연결 상태를 확인하세요.") from None
+    return load_dicom_source(name, data)
 
 
 def sample_image_bytes() -> bytes:
@@ -181,6 +194,8 @@ def render_viewer(
     roi_summary: Callable | None = None,
     processing_record=None,
     stored_processing=None,
+    selected_source: ViewerSource | None = None,
+    selected_context: dict | None = None,
     allow_source_change: Callable[[], bool] | None = None,
 ) -> ViewerSource | None:
     """Processor receives a COPY of the RGB source and must return the same size.
@@ -191,13 +206,14 @@ def render_viewer(
     st.session_state.pop("viewer_displayed_processing", None)
     st.session_state.pop("viewer_displayed_result", None)
     st.session_state.pop("viewer_processing_contract_error", None)
-    st.subheader("PACS 뷰어")
+    st.subheader("PACS 뷰어", anchor="pacs-viewer")
     st.caption("교육용 영상 검토 · 원본을 보존하고 같은 위치의 처리 결과를 비교합니다.")
+    context_slot = st.container()
     selection, canvas, details = st.columns([1.15, 3.3, 1.15], gap="medium")
     with selection:
         st.markdown("#### 영상 선택")
-        st.caption("PNG · JPEG / 20 MB · 2,000만 픽셀 이하")
-        mode = st.radio("영상 가져오기", ["파일 가져오기", "합성 예시", "로컬 저장 영상"], key="viewer_mode")
+        st.caption("PNG · JPEG · DICOM / 20 MB · 2,000만 픽셀 이하")
+        mode = st.radio("영상 가져오기", ["파일 가져오기", "합성 예시", "로컬 저장 영상", "검사 선택 영상"], key="viewer_mode")
     source = None
     input_failed = False
     try:
@@ -205,20 +221,25 @@ def render_viewer(
             source = load_image("synthetic-sample.png", sample_image_bytes())
             with selection:
                 st.caption("명암과 사각형으로 만든 합성 예시입니다. 의료영상이 아닙니다.")
-        elif mode == "로컬 저장 영상":
-            if stored_source is not None:
-                source = load_image(stored_source.name, stored_source.original_bytes)
-                if source.source_id != stored_source.source_id:
+        elif mode in {"로컬 저장 영상", "검사 선택 영상"}:
+            candidate = selected_source if mode == "검사 선택 영상" else stored_source
+            if candidate is not None:
+                source = load_viewer_source(candidate.name, candidate.original_bytes)
+                if source.source_id != candidate.source_id:
                     raise ViewerInputError("저장 원본의 참조와 파일 해시가 일치하지 않습니다.")
+                if mode == "검사 선택 영상" and (selected_context is None or selected_context.get("source_id") != source.source_id):
+                    raise ViewerInputError("현재 검사 선택 정보와 영상의 원본 참조가 일치하지 않습니다. 목록에서 다시 여세요.")
             with selection:
-                st.caption("아래 개발용 로컬 원본 저장과 재열기 영역에서 저장한 원본을 선택하세요.")
+                st.caption("위 환자·검사 목록에서 영상을 열어 주세요." if mode == "검사 선택 영상" else
+                           "아래 개발용 로컬 원본 저장과 재열기 영역에서 저장한 원본을 선택하세요.")
         else:
             with selection:
-                uploaded = st.file_uploader("PNG/JPEG 영상 열기", type=["png", "jpg", "jpeg"],
+                uploaded = st.file_uploader("PNG/JPEG/DICOM 영상 열기", type=["png", "jpg", "jpeg", "dcm"],
                                             max_upload_size=20, key="viewer_upload")
                 st.caption("공개 또는 합성 영상을 사용하세요.")
+                st.caption("DICOM: 비압축 Little Endian, 단일 프레임 흑백 CT·MR·CR·DX·Secondary Capture만 지원합니다. 압축·다중 프레임·컬러는 오류로 안내합니다.")
             if uploaded is not None:
-                source = load_image(uploaded.name, uploaded.getvalue())
+                source = load_viewer_source(uploaded.name, uploaded.getvalue())
     except ViewerInputError as error:
         source = None
         input_failed = True
@@ -251,6 +272,17 @@ def render_viewer(
             st.markdown("#### 영상 정보")
             st.caption("선택된 영상이 없습니다.")
         return None
+
+    with context_slot:
+        if mode == "검사 선택 영상":
+            st.markdown("#### 현재 선택한 환자와 검사")
+            st.text(f"환자 {selected_context['patient_id']} / 발급 주체 {selected_context['issuer']}")
+            st.text(f"검사 {selected_context['study_id']} / 촬영일 {selected_context['acquired_on']}")
+            st.caption(f"시리즈 {selected_context['series_id']} / 영상 종류 {selected_context['modality']}")
+            st.caption(f"영상 {selected_context['object_id']} / 프레임 1/{selected_context['frame_count']} · 내부 프레임 번호 0")
+            st.caption("좌표: 표시 RGB 원본의 좌상단 원점, 정수 픽셀, ROI 오른쪽·아래 끝 제외. 실제 길이 측정 미지원.")
+        if source.file_format == "DICOM":
+            st.caption("DICOM 처리·ROI 통계는 B가 만든 8비트 표시값 기준이며 CT HU가 아닙니다. 원본 DICOM 바이트는 보존합니다.")
 
     from case_processing import validate_processing, show_processing
 
