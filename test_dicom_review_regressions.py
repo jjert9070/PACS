@@ -1,5 +1,7 @@
 """Regression cases for the B/C review: keep invalid inputs out of storage."""
 from io import BytesIO
+from fractions import Fraction
+import math
 import unittest
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
@@ -92,6 +94,48 @@ class ReaderReviewRegressions(unittest.TestCase):
         self.assertEqual(pixels.tolist(), [[0, 0, 255, 255]])
         self.assertEqual(inverted.tolist(), [[255, 255, 0, 0]])
         self.assertEqual((mapping.method, mapping.width), ("dicom_window", 1))
+
+    def test_width_one_matches_exact_threshold_at_float_boundaries(self):
+        largest = float.fromhex("0x1.fffffffffffffp+1023")
+        centers = [0.0, 0.1, -0.1, 0.3, -0.3, 1.0, -1.0,
+                   float(2**53), -float(2**53), float(2**100), -float(2**100),
+                   largest, -largest, math.ulp(0.0), -math.ulp(0.0)]
+        for center in centers:
+            threshold = center - 0.5
+            values = [0.0, center, threshold, math.nextafter(threshold, -math.inf),
+                      math.nextafter(threshold, math.inf), largest, -largest]
+            values = [v for v in values if math.isfinite(v)]
+            exact = Fraction.from_float(center) - Fraction(1, 2)
+            expected = [0 if Fraction.from_float(v) <= exact else 255 for v in values]
+            with self.subTest(center=center), np.errstate(all="raise"):
+                actual, _ = display_values(np.array([values]), center, 1, False)
+                inverted, _ = display_values(np.array([values]), center, 1, True)
+                self.assertEqual(actual.tolist(), [expected])
+                self.assertEqual(inverted.tolist(), [[255 - v for v in expected]])
+
+    def test_linear_window_at_large_centers_matches_exact_rational_mapping(self):
+        for center in (float(2**53), -float(2**53)):
+            for width in (2, 3, 400):
+                values = [center + offset for offset in (-4, -2, 0, 2, 4)]
+                expected = []
+                for value in values:
+                    scaled = ((Fraction.from_float(value) - Fraction.from_float(center) + Fraction(1, 2))
+                              / (width - 1) + Fraction(1, 2))
+                    expected.append(round(min(max(scaled, 0), 1) * 255))
+                with self.subTest(center=center, width=width), np.errstate(all="raise"):
+                    mapped, _ = display_values(np.array([values]), center, width, False)
+                    self.assertEqual(mapped.tolist(), [expected])
+
+    def test_large_center_dicom_does_not_turn_center_pixels_black(self):
+        def change(ds):
+            ds.RescaleSlope = 1
+            ds.RescaleIntercept = "9007199254740992"
+            ds.WindowCenter = "9007199254740992"
+            ds.WindowWidth = 1
+        data = edited_dicom(change)
+        imported = read_dicom("large-center.dcm", data)
+        self.assertEqual(imported.display_image.getextrema(), ((255, 255),) * 3)
+        self.assertEqual(imported.original_bytes, data)
 
     def test_absent_window_keeps_min_max_mapping(self):
         with np.errstate(all="raise"):
