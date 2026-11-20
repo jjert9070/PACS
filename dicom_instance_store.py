@@ -50,7 +50,9 @@ class DicomMetadata:
             raise DicomInputError("검사, 시리즈, 원본 객체와 SOP Class는 서로 다른 UID여야 합니다.")
         if type(self.frame_count) is not int or not 0 <= self.frame_count <= 2147483647:
             raise DicomInputError("확인된 프레임 수가 필요합니다. 비영상 객체는 0으로 전달합니다.")
-        Series(self.study_uid, self.series_uid, self.modality, self.body_region)
+        series = Series(self.study_uid, self.series_uid, self.modality, self.body_region)
+        object.__setattr__(self, "modality", series.modality)
+        object.__setattr__(self, "body_region", series.body_region)
 
 
 @dataclass(frozen=True)
