@@ -49,7 +49,7 @@
 ### 검사 순서와 오류 구분
 
 1. 크기, `DICM` 표지, File Meta를 확인한다.
-2. 전송 구문, SOP Class(File Meta와 데이터셋의 값이 같은지 포함)를 확인한다.
+2. 전송 구문, SOP Class와 SOP Instance UID(File Meta와 데이터셋의 값이 같은지 포함)를 확인한다.
 3. UID 형식(PS3.5 9.1, 64자 이하)과 UID끼리 서로 다른지 확인한다.
 4. `PatientID`, `IssuerOfPatientID`를 확인한다.
 5. 프레임 수, 채널, Photometric, 비트 수, 크기를 확인한다.
@@ -77,11 +77,13 @@
 뷰어와 B 알고리즘은 8비트 RGB를 받는다. DICOM 저장값을 그대로 넘기지 않고, **표시용 영상을 따로 만든다.**
 
 1. Modality 값 = 저장값 × `RescaleSlope` + `RescaleIntercept`
-2. `WindowCenter`/`WindowWidth`가 있으면 DICOM VOI LUT LINEAR(PS3.3 C.11.2.1.2.1)를 적용한다. 값이 여러 개면 첫 값을 쓴다. 없거나 폭이 1 미만이면 최소–최대로 늘린다.
+2. `WindowCenter`/`WindowWidth`가 있으면 DICOM VOI LUT LINEAR(PS3.3 C.11.2.1.2.1)를 적용한다. 값이 여러 개면 첫 쌍을 쓴다. 두 값이 모두 없을 때만 최소–최대 변환을 사용한다. 한 값만 있거나 폭이 1 미만이면 오류로 거절하며, 폭 1은 0으로 나누지 않는 임계값 변환으로 처리한다. VOILUTFunction은 LINEAR만 지원하고 SIGMOID 등은 미지원 오류로 거절한다.
 3. MONOCHROME1이면 변환 뒤에 반전한다.
 4. 0~255로 반올림(`np.rint`)한 회색 값을 RGB 세 채널에 복제한다.
 
-변환 방식, center, width, 반전 여부와 변환 버전(`1.0.0`)은 `DicomImport.display`와 `provenance()`에 기록된다. 그래서 **B 알고리즘과 ROI 통계는 이 표시값을 기준으로 계산된다.** CT HU나 원본 저장값이 아니다. ROI 통계 화면에도 DICOM일 때 이 점을 함께 안내한다(`roi_ui.py`). 지원 범위 밖의 픽셀 형식은 변환하지 않고 거절한다.
+변환 방식, center, width, 반전 여부와 변환 버전(`1.1.0`)은 `DicomImport.display`와 `provenance()`에 기록된다. 그래서 **B 알고리즘과 ROI 통계는 이 표시값을 기준으로 계산된다.** CT HU나 원본 저장값이 아니다. ROI 통계 화면에도 DICOM일 때 이 점을 함께 안내한다(`roi_ui.py`). 지원 범위 밖의 픽셀 형식은 변환하지 않고 거절한다.
+
+원본과 픽셀 검사는 표시 영상 생성과 분리했다. C의 `storage_metadata`는 같은 지원 조건과 원본 재검사를 유지하면서 RGB 표시 영상을 만들지 않는다. Rescale 결과가 유한하지 않으면 거절한다. StudyDate는 실제 달력의 날짜만 반환하며 잘못된 날짜는 빈 문자열로 구분한다.
 
 ### 처리 결과와 ROI의 원본 참조
 

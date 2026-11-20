@@ -18,6 +18,7 @@ Statistics on that image are display values, not CT HU or other physical units.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from hashlib import sha256
 from io import BytesIO
 import math
@@ -28,6 +29,7 @@ from PIL import Image
 from pydicom import __version__ as pydicom_version
 from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
+from pydicom.multival import MultiValue
 from pydicom.uid import (
     CTImageStorage,
     ComputedRadiographyImageStorage,
@@ -40,7 +42,7 @@ from pydicom.uid import (
 
 from viewer import MAX_FILE_BYTES, MAX_PIXELS, ViewerInputError, ViewerSource
 
-DISPLAY_MAPPING_VERSION = "1.0.0"
+DISPLAY_MAPPING_VERSION = "1.1.0"
 SUPPORTED_TRANSFER_SYNTAXES = {
     str(ImplicitVRLittleEndian): "Implicit VR Little Endian",
     str(ExplicitVRLittleEndian): "Explicit VR Little Endian",
@@ -176,8 +178,10 @@ def _number(ds, keyword: str, default: float) -> float:
     value = ds.get(keyword)
     if value is None or str(value).strip() == "":
         return default
-    if isinstance(value, (list, tuple)) or getattr(value, "VM", 1) > 1:
-        value = list(value)[0]          # multi-valued window: use the first (recorded)
+    if isinstance(value, (list, tuple, MultiValue)):
+        if not value:
+            raise DicomInvalidValueError(f"{keyword}에 숫자 값이 없습니다.")
+        value = value[0]          # multi-valued window: use the first (recorded)
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -189,39 +193,67 @@ def _number(ds, keyword: str, default: float) -> float:
 
 def _date(ds) -> str:
     value = str(ds.get("StudyDate", "") or "").strip()
-    if re.fullmatch(r"\d{8}", value):
-        return f"{value[:4]}-{value[4:6]}-{value[6:]}"
-    return ""
+    if not re.fullmatch(r"[0-9]{8}", value):
+        return ""
+    try:
+        return date(int(value[:4]), int(value[4:6]), int(value[6:])).isoformat()
+    except ValueError:
+        return ""
+
+
+def _validate_window(center: float | None, width: float | None) -> None:
+    if ((center is None) != (width is None)
+            or (center is not None and (not math.isfinite(center) or not math.isfinite(width) or width < 1))):
+        raise DicomInvalidValueError("Window Center와 Width가 함께 필요하며 LINEAR 폭은 1 이상이어야 합니다.")
+
+
+def _window(ds) -> tuple[float | None, float | None]:
+    function = _text(ds, "VOILUTFunction", required=False) or "LINEAR"
+    if function != "LINEAR":
+        raise DicomUnsupportedError("지원하지 않는 VOI LUT Function입니다. 이번 단계는 LINEAR만 지원합니다.")
+    center = _number(ds, "WindowCenter", math.nan) if "WindowCenter" in ds else None
+    width = _number(ds, "WindowWidth", math.nan) if "WindowWidth" in ds else None
+    _validate_window(center, width)
+    return center, width
 
 
 def display_values(modality_values: np.ndarray, center: float | None, width: float | None,
                    inverted: bool) -> tuple[np.ndarray, DisplayMapping]:
-    """Map modality values to uint8 for display only.
-
-    With a window (width ≥ 1) this is the DICOM VOI LUT "LINEAR" function
-    (PS3.3 C.11.2.1.2.1); otherwise the full value range is stretched (min–max).
-    MONOCHROME1 is inverted after mapping so that higher values look darker.
-    """
+    """Apply LINEAR, or min-max only when both window settings are absent."""
     values = modality_values.astype(np.float64)
-    if center is not None and width is not None and width >= 1:
-        low = center - 0.5 - (width - 1) / 2
-        high = center - 0.5 + (width - 1) / 2
-        scaled = ((values - (center - 0.5)) / (width - 1) + 0.5) * 255.0
-        mapped = np.where(values <= low, 0.0, np.where(values > high, 255.0, scaled))
+    if not values.size or not np.isfinite(values).all():
+        raise DicomInvalidValueError("표시할 픽셀 값이 유한한 숫자가 아닙니다.")
+    _validate_window(center, width)
+    if center is not None:
+        if width == 1:
+            mapped = np.where(values <= center - 0.5, 0.0, 255.0)
+        else:
+            low = center - 0.5 - (width - 1) / 2
+            high = center - 0.5 + (width - 1) / 2
+            # Clip first so out-of-window values do not overflow intermediate arithmetic.
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                mapped = ((np.clip(values, low, high) - (center - 0.5)) / (width - 1) + 0.5) * 255.0
         mapping = DisplayMapping("dicom_window", float(center), float(width), inverted)
     else:
         lowest, highest = float(values.min()), float(values.max())
         span = highest - lowest
+        if not math.isfinite(span):
+            raise DicomInvalidValueError("표시할 픽셀 값의 범위가 너무 큽니다.")
         mapped = np.zeros_like(values) if span == 0 else (values - lowest) / span * 255.0
-        mapping = DisplayMapping("min_max", (lowest + highest) / 2, span, inverted)
+        mapping = DisplayMapping("min_max", lowest + span / 2, span, inverted)
+    if not np.isfinite(mapped).all():
+        raise DicomInvalidValueError("표시 변환 결과가 유한한 숫자가 아닙니다.")
     result = np.clip(np.rint(mapped), 0, 255).astype(np.uint8)
     if inverted:
         result = 255 - result
     return result, mapping
 
 
-def read_dicom(name: str, data: bytes) -> DicomImport:
-    """Validate one DICOM file and return its identifiers, stored pixels and display image."""
+def _inspect_dicom(data: bytes):
+    """Validate original bytes and pixels without allocating a display image.
+
+    Return the dataset, immutable stored pixels, modality values and source hash.
+    """
     if not isinstance(data, bytes):
         raise TypeError("DICOM 원본은 bytes여야 합니다.")
     if not data:
@@ -251,15 +283,16 @@ def read_dicom(name: str, data: bytes) -> DicomImport:
     if sop_class not in SUPPORTED_SOP_CLASSES:
         raise DicomUnsupportedError(f"지원하지 않는 SOP Class입니다: {sop_class}. "
                                     "이번 단계는 CT, MR, CR, DX, Secondary Capture 영상만 지원합니다.")
-    media_class = str(getattr(meta, "MediaStorageSOPClassUID", "") or "").strip()
-    if media_class and media_class != sop_class:
+    if _uid(meta, "MediaStorageSOPClassUID") != sop_class:
         raise DicomInvalidValueError("File Meta와 데이터셋의 SOP Class UID가 다릅니다.")
     identifiers = {keyword: _uid(ds, keyword)
                    for keyword in ("StudyInstanceUID", "SeriesInstanceUID", "SOPInstanceUID")}
+    if _uid(meta, "MediaStorageSOPInstanceUID") != identifiers["SOPInstanceUID"]:
+        raise DicomInvalidValueError("File Meta와 데이터셋의 SOP Instance UID가 다릅니다.")
     if len({sop_class, *identifiers.values()}) != 4:
         raise DicomInvalidValueError("검사, 시리즈, 객체와 SOP Class UID는 서로 달라야 합니다.")
-    patient_id = _text(ds, "PatientID", required=True)
-    issuer = _text(ds, "IssuerOfPatientID", required=True)
+    _text(ds, "PatientID", required=True)
+    _text(ds, "IssuerOfPatientID", required=True)
 
     frames = _integer(ds, "NumberOfFrames") if "NumberOfFrames" in ds else 1
     if frames != 1:
@@ -297,24 +330,34 @@ def read_dicom(name: str, data: bytes) -> DicomImport:
     intercept = _number(ds, "RescaleIntercept", 0.0)
     if slope == 0:
         raise DicomInvalidValueError("RescaleSlope가 0입니다.")
-    center = _number(ds, "WindowCenter", math.nan) if "WindowCenter" in ds else None
-    width = _number(ds, "WindowWidth", math.nan) if "WindowWidth" in ds else None
-    modality_values = stored_pixels.astype(np.float64) * slope + intercept
-    display, mapping = display_values(modality_values, center, width, photometric == "MONOCHROME1")
-
-    if sha256(data).hexdigest() != digest_before:   # reading must never alter the original
+    with np.errstate(over="ignore", invalid="ignore"):
+        modality_values = stored_pixels.astype(np.float64) * slope + intercept
+    if not np.isfinite(modality_values).all():
+        raise DicomInvalidValueError("Rescale 계산 결과가 유한한 숫자가 아닙니다.")
+    if sha256(data).hexdigest() != digest_before:
         raise DicomCorruptError("읽는 중 원본 바이트가 바뀌었습니다.")
+    return ds, stored_pixels, modality_values, digest_before
+
+
+def read_dicom(name: str, data: bytes) -> DicomImport:
+    """Validate one DICOM file and return its identifiers, stored pixels and display image."""
+    ds, stored_pixels, modality_values, source_id = _inspect_dicom(data)
+    center, width = _window(ds)
+    photometric = _text(ds, "PhotometricInterpretation", required=True)
+    display, mapping = display_values(modality_values, center, width, photometric == "MONOCHROME1")
     return DicomImport(
-        source_id=digest_before, file_name=str(name), byte_count=len(data),
-        transfer_syntax_uid=transfer_syntax, sop_class_uid=sop_class,
-        sop_uid=identifiers["SOPInstanceUID"], study_uid=identifiers["StudyInstanceUID"],
-        series_uid=identifiers["SeriesInstanceUID"], patient_issuer=issuer, patient_id=patient_id,
+        source_id=source_id, file_name=str(name), byte_count=len(data),
+        transfer_syntax_uid=str(ds.file_meta.TransferSyntaxUID), sop_class_uid=str(ds.SOPClassUID),
+        sop_uid=str(ds.SOPInstanceUID), study_uid=str(ds.StudyInstanceUID),
+        series_uid=str(ds.SeriesInstanceUID), patient_issuer=_text(ds, "IssuerOfPatientID", required=True),
+        patient_id=_text(ds, "PatientID", required=True),
         modality=_text(ds, "Modality", required=False), body_region=_text(ds, "BodyPartExamined", required=False),
-        study_date=_date(ds), frame_count=frames, rows=rows, columns=columns,
-        bits_allocated=allocated, bits_stored=stored, pixel_representation=representation,
-        photometric=photometric, rescale_slope=slope, rescale_intercept=intercept, display=mapping,
-        stored_pixels=stored_pixels, display_image=Image.fromarray(np.stack([display] * 3, axis=-1)),
-        original_bytes=data,
+        study_date=_date(ds), frame_count=int(ds.get("NumberOfFrames", 1)), rows=int(ds.Rows), columns=int(ds.Columns),
+        bits_allocated=int(ds.BitsAllocated), bits_stored=int(ds.BitsStored),
+        pixel_representation=int(ds.PixelRepresentation), photometric=photometric,
+        rescale_slope=_number(ds, "RescaleSlope", 1.0), rescale_intercept=_number(ds, "RescaleIntercept", 0.0),
+        display=mapping, stored_pixels=stored_pixels,
+        display_image=Image.fromarray(np.stack([display] * 3, axis=-1)), original_bytes=data,
     )
 
 
@@ -338,7 +381,10 @@ def storage_metadata(data: bytes):
     from dicom_instance_store import DicomMetadata
     from patient_study_identity import PatientIdentity
 
-    imported = read_dicom("", data)
-    return DicomMetadata(PatientIdentity(imported.patient_issuer, imported.patient_id),
-                         imported.study_uid, imported.series_uid, imported.sop_uid,
-                         imported.sop_class_uid, imported.frame_count, imported.modality, imported.body_region)
+    ds, _, _, _ = _inspect_dicom(data)
+    _window(ds)
+    return DicomMetadata(PatientIdentity(_text(ds, "IssuerOfPatientID", required=True),
+                                        _text(ds, "PatientID", required=True)),
+                         str(ds.StudyInstanceUID), str(ds.SeriesInstanceUID), str(ds.SOPInstanceUID),
+                         str(ds.SOPClassUID), int(ds.get("NumberOfFrames", 1)),
+                         _text(ds, "Modality", required=False), _text(ds, "BodyPartExamined", required=False))
