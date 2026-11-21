@@ -1,6 +1,6 @@
 # DICOM 입력과 영상 처리 연결 (Issue #23, 담당 B)
 
-기준 브랜치는 `feature/B-dicom-input`(`develop` `d55b347`에서 시작)이다. 이 문서에 적은 범위만 확인했으며 **DICOM 전체 지원을 뜻하지 않는다.** 근거로 삼은 문서는 통합 설계서 8.5(영상 종류별 조건), 9.2(등록과 해시), 10.2(DICOMInstance), 13.3(DICOM 지원 범위)과 C의 `docs/patient-study-contract.md`, `docs/patient-storage-handoff.md`다.
+최초 구현은 `feature/B-dicom-input`(`develop` `d55b347`에서 시작)이며, 아래 압축 지원 표는 `intergrationABC`의 2026-11-21 확장(`bd837f0`) 기준이다. 같은 확장을 2026-11-21에 단독 B 브랜치에도 반영했다(아래 2장 끝의 단독 시험 결과 참고). 이 문서에 적은 범위만 확인했으며 **DICOM 전체 지원을 뜻하지 않는다.** 근거로 삼은 문서는 통합 설계서 8.5(영상 종류별 조건), 9.2(등록과 해시), 10.2(DICOMInstance), 13.3(DICOM 지원 범위)과 C의 `docs/patient-study-contract.md`, `docs/patient-storage-handoff.md`다.
 
 ## 1. 지원 범위와 샘플
 
@@ -9,7 +9,7 @@
 | 항목 | 지원 | 그 밖의 경우 |
 |---|---|---|
 | 파일 | DICOM Part 10. 128바이트 머리말 뒤 `DICM` 표지와 File Meta, 20 MB 이하 | 표지·구조 없음 → 손상(`corrupt`) |
-| 전송 구문 | Implicit VR Little Endian, Explicit VR Little Endian (비압축) | JPEG, JPEG 2000, RLE 등 압축 → 미지원 |
+| 전송 구문 | Implicit/Explicit VR Little Endian, JPEG 2000 Lossless, JPEG 2000, RLE Lossless | JPEG Baseline, JPEG-LS 등 지원 목록 밖 전송 구문은 미지원 |
 | SOP Class | CT, MR, CR, DX(For Presentation), Secondary Capture **영상** | 표시 상태(PR) 등 비영상과 그 밖의 SOP Class → 미지원 |
 | 프레임 | 단일 프레임 | 다중 프레임 → 미지원 (프레임 수를 안내) |
 | 픽셀 | 채널 1개, MONOCHROME1/2, 할당 8 또는 16비트, 부호 있음·없음 | RGB 등 컬러, 32비트, 부동소수 → 미지원 |
@@ -34,7 +34,7 @@
 
 ### 라이브러리와 실행 환경
 
-- `pydicom==3.0.1`(MIT 라이선스)을 `pyproject.toml`과 `uv.lock`에 추가했다. 비압축 픽셀 해석은 NumPy로 처리하므로 별도 디코더 패키지는 넣지 않았다.
+- `pydicom==3.0.1`을 사용한다. JPEG 2000에는 `pylibjpeg==2.1.0`과 `pylibjpeg-openjpeg==2.6.0`을 사용하고 RLE는 pydicom의 디코더를 사용한다. `uv sync --locked`로 잠금 파일의 의존성을 설치한다.
 - 확인한 환경은 Windows, Python 3.12.14, NumPy 2.2.6, Pillow 12.3.0, Streamlit 1.55.0이다.
 
 ## 2. DICOM 입력 (`dicom_input.py`)
@@ -53,14 +53,14 @@
 3. UID 형식(PS3.5 9.1, 64자 이하)과 UID끼리 서로 다른지 확인한다.
 4. `PatientID`, `IssuerOfPatientID`를 확인한다.
 5. 프레임 수, 채널, Photometric, 비트 수, 크기를 확인한다.
-6. 픽셀 데이터 길이를 확인하고 해석한다.
+6. 비압축은 픽셀 데이터 길이를 확인한다. 압축은 실제 프레임 수를 확인하고, JPEG 2000은 코덱 헤더의 크기와 채널, 정밀도 및 부호가 DICOM과 맞는지 픽셀 할당 전에 확인한다. 지정한 디코더로 해석한 배열의 크기도 검증한다.
 
 | 오류 클래스 | `code` | 예 |
 |---|---|---|
 | `DicomCorruptError` | `corrupt` | DICOM이 아님, 잘린 파일, 픽셀 길이 부족 |
 | `DicomMissingTagError` | `missing_tag` | `PatientID`, `IssuerOfPatientID`, `StudyInstanceUID`, `Rows`, `PixelData` 없음 |
 | `DicomInvalidValueError` | `invalid_value` | UID 형식 오류, 검사와 시리즈 UID가 같음, `RescaleSlope` 0 |
-| `DicomUnsupportedError` | `unsupported` | 압축 전송 구문, 다중 프레임, 컬러, 비영상 SOP Class, 20 MB 초과 |
+| `DicomUnsupportedError` | `unsupported` | 지원 목록 밖 전송 구문, 압축 디코더 미설치, 다중 프레임, 컬러, 비영상 SOP Class, 20 MB 초과 |
 
 모든 오류는 뷰어의 `ViewerInputError`를 상속한다. 그래서 A의 기존 입력 오류 경로가 **영상 대신 오류 안내**를 보여준다. 동시에 `ValueError`이기도 하므로 C의 해석 실패 처리와도 맞는다. 오류 문구에는 환자 ID나 이름을 넣지 않는다. 확장자나 `DICM` 표지만 보고 정상이라고 판단하지 않는다.
 
@@ -69,6 +69,20 @@
 - 원본 바이트를 수정하지 않는다. 읽기 전후의 SHA-256을 비교하고, 이 해시를 `source_id`로 쓴다.
 - C가 쓰는 원본 키 `<sha256>.dcm`과 같은 해시다.
 - 원본 저장값은 원래 자료형(예: `uint16`)으로 보관하고 읽기 전용으로 둔다.
+
+압축 해제한 파일로 원본을 교체하지 않는다. 무손실 압축은 합성 자료의 픽셀 일치를 확인했지만 JPEG 2000 `.91`은 손실 압축을 포함하므로 압축 전 픽셀과의 완전 일치를 보장하지 않는다. `test_dicom_compression.py`의 9개 시험은 합성 자료만 사용한다. 압축 지원 후 ABC 전체는 345개 통과했으며 인증과 Firestore는 모의다. 실제 코덱의 모든 입력이나 임상 적합성을 증명한 결과가 아니다.
+
+단독 B 브랜치에서는 `uv run --locked python -m unittest discover` 결과 **228개 중 212개 통과, 16개 건너뜀**이다. 건너뛴 시험은 두 종류다.
+- C 모듈이 필요한 시험 15개
+- A 화면과 C 저장이 함께 필요한 `test_actual_app_registers_reopens_and_retries_compressed_originals` 1개. 이 시험은 `intergrationABC`에서 실행한다.
+
+압축 시험 9개 중 나머지 8개는 단독에서 통과했다.
+
+공개 비식별 MRI(fastMRI 무릎 DICOM, JPEG 2000 Lossless) 40개로도 단독 B에서 확인했다.
+- 압축 형식 때문에 거절되지는 않는다.
+- 대신 File Meta에 `MediaStorageSOPClassUID`와 `MediaStorageSOPInstanceUID`가 없어서 `missing_tag`로 거절된다. 이 값은 Part 10 필수 항목이므로 설계대로 거절한다.
+- 같은 파일에는 `IssuerOfPatientID`도 없다.
+- 이 자료는 이용 계약 때문에 저장소에 넣지 않았다.
 
 ## 3. 표시와 처리 연결
 
