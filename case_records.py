@@ -258,30 +258,32 @@ def save_case(
         logger.warning("case_save_failed case=%s operation=%s status=%s exception=%s",
                        case_id, operation_id, error.status, type(error).__name__)
         # A previous response may have been lost. Immutable version proves this exact write.
-        if error.status not in {400, 403, 409}:
+        if error.status not in {400, 403, 409, 412}:
             logger.warning("case_save_reason case=%s reason=request_failed status=%s", case_id, error.status)
             raise
         try:
             existing = _decode(_request(version_path, session), collection, case_id)
         except FirebaseRequestError as read_error:
             if read_error.status == 404:
-                if error.status == 403:
-                    # Rules may reject an old version before the write precondition runs.
-                    if base is not None:
-                        try:
-                            latest = get_case(project_id, session, case_id)
-                        except FirebaseRequestError as check_error:
-                            logger.warning("case_save_reason case=%s reason=latest_read_failed status=%s",
-                                           case_id, check_error.status)
-                            raise
-                        if latest.update_time != base.update_time:
-                            logger.warning("case_save_reason case=%s reason=stale_case_version base_version=%s latest_version=%s",
-                                           case_id, base.values["version"], latest.values["version"])
-                            raise CaseConflict("다른 창에서 먼저 저장했습니다. 현재 입력은 유지됩니다. 최신 버전을 다시 열어 비교하세요.") from None
-                    logger.warning("case_save_reason case=%s reason=permission_denied_or_rule_rejected status=403", case_id)
-                    raise error from None
-                logger.warning("case_save_reason case=%s reason=write_conflict status=%s", case_id, error.status)
-                raise CaseConflict("다른 변경이 먼저 저장됐습니다. 최신 버전을 다시 열어 비교하세요.") from None
+                # A missing receipt alone does not prove a conflicting write.
+                try:
+                    latest = get_case(project_id, session, case_id)
+                except FirebaseRequestError as check_error:
+                    logger.warning("case_save_reason case=%s reason=latest_read_failed status=%s",
+                                   case_id, check_error.status)
+                    if check_error.status == 404:
+                        raise error from None
+                    raise
+                if base is None:
+                    logger.warning("case_save_reason case=%s reason=write_conflict status=%s", case_id, error.status)
+                    raise CaseConflict("다른 변경이 먼저 저장됐습니다. 최신 버전을 다시 열어 비교하세요.") from None
+                if latest.update_time != base.update_time:
+                    logger.warning("case_save_reason case=%s reason=stale_case_version base_version=%s latest_version=%s",
+                                   case_id, base.values["version"], latest.values["version"])
+                    raise CaseConflict("다른 창에서 먼저 저장했습니다. 현재 입력은 유지됩니다. 최신 버전을 다시 열어 비교하세요.") from None
+                reason = "permission_denied_or_rule_rejected" if error.status == 403 else "write_rejected_without_version_change"
+                logger.warning("case_save_reason case=%s reason=%s status=%s", case_id, reason, error.status)
+                raise error from None
             logger.warning("case_save_reason case=%s reason=version_read_failed status=%s", case_id, read_error.status)
             raise
         if existing.values != values:

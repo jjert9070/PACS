@@ -4,4 +4,4 @@ defaultTargets = ["pacs_verification"]
 
 [[lean_lib]]
 name = "pacs_verification"
-roots = ["BRules", "CRules", "IntegrationRules", "ARules", "ABCRules", "StateSequences", "GeometryRules", "InputPersistenceRules"]
+roots = ["BRules", "CRules", "IntegrationRules", "ARules", "ABCRules", "StateSequences", "GeometryRules", "InputPersistenceRules", "StudyRecoveryRules"]
