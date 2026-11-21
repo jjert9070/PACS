@@ -1,0 +1,226 @@
+diff --git a/gaussian_ui.py b/gaussian_ui.py
+index 08595fe..e2cf8b7 100644
+--- a/gaussian_ui.py
++++ b/gaussian_ui.py
+@@ -21,6 +21,7 @@ from image_processing import (
+     gaussian_blur,
+     threshold_segmentation,
+ )
++from processing_compat import check_compatibility, processing_environment
+ from viewer import ProcessingPending, ViewerSource
+ 
+ PREFIX = "viewer_processing_"
+@@ -56,6 +57,31 @@ def _describe(algorithm_id: str, parameters: dict) -> str:
+     return f"σ={parameters['radius']:g} px"
+ 
+ 
++def _check_restored(restored: dict, source: ViewerSource):
++    """Compatibility of the record C reopened; version/environment come from C's record."""
++    stored = st.session_state.get("viewer_stored_processing")
++    if stored is not None and getattr(stored, "source_id", None) != source.source_id:
++        stored = None
++    version = restored.get("algorithm_version", getattr(stored, "algorithm_version", None))
++    environment = restored.get("environment", getattr(stored, "environment", None))
++    return check_compatibility(restored["algorithm_id"], version, restored["parameters"], environment)
++
++
++def _show_stored_check(check) -> None:
++    """Explain why stored settings were not restored and whether conditions changed."""
++    if check is None:
++        return
++    if not check.can_restore_settings:
++        st.warning(
++            "저장된 설정을 현재 처리 도구에 적용할 수 없습니다. 새 설정을 선택하세요. "
++            "저장 당시 결과는 다시 계산하지 않고 그대로 표시합니다.\n\n" + "\n".join(check.reasons)
++        )
++    elif check.environment_status == "changed":
++        st.info("\n\n".join(check.environment_notes))
++    elif check.environment_status == "missing":
++        st.caption(check.environment_notes[0])
++
++
+ def render_gaussian_controls(source: ViewerSource) -> None:
+     st.markdown("#### 영상 처리")
+     algorithms = [NONE, GAUSSIAN, GAMMA, THRESHOLD]
+@@ -64,20 +90,15 @@ def render_gaussian_controls(source: ViewerSource) -> None:
+         st.session_state[PREFIX + "algorithm"] = GAUSSIAN
+         for name, value in (("radius", 1.0), ("gamma", 1.0), ("threshold", 128)):
+             st.session_state[PREFIX + name] = value
+-        setting = {
+-            GAUSSIAN_ALGORITHM_ID: ("radius", 0, MAX_GAUSSIAN_RADIUS),
+-            GAMMA_ALGORITHM_ID: ("gamma", MIN_GAMMA, MAX_GAMMA),
+-            THRESHOLD_ALGORITHM_ID: ("threshold", MIN_THRESHOLD, MAX_THRESHOLD),
+-        }.get(restored["algorithm_id"])
+-        if setting is not None:
+-            name, lower, upper = setting
+-            value = restored["parameters"].get(name)
+-            if (type(value) in (int, float) and lower <= value <= upper
+-                    and (name != "threshold" or type(value) is int)):
+-                st.session_state[PREFIX + "algorithm"] = ALGORITHM_LABELS[restored["algorithm_id"]]
+-                st.session_state[PREFIX + name] = int(value) if name == "threshold" else float(value)
+-            else:
+-                st.warning("저장된 설정을 현재 처리 도구에 적용할 수 없습니다. 새 설정을 선택하세요.")
++        st.session_state.pop(PREFIX + "stored_check", None)
++        if restored["algorithm_id"]:
++            check = _check_restored(restored, source)
++            st.session_state[PREFIX + "stored_check"] = check
++            if check.can_restore_settings:
++                # Fill the controls only; the stored result is shown as saved, not re-run.
++                name, value = next(iter(restored["parameters"].items()))
++                st.session_state[PREFIX + "algorithm"] = ALGORITHM_LABELS[check.algorithm_id]
++                st.session_state[PREFIX + name] = value if name == "threshold" else float(value)
+     algorithm = st.selectbox(
+         "처리 알고리즘", algorithms,
+         index=0 if PREFIX + "algorithm" in st.session_state else 1,
+@@ -89,6 +110,7 @@ def render_gaussian_controls(source: ViewerSource) -> None:
+         st.session_state[PREFIX + "selected"] = algorithm
+     if algorithm == NONE:
+         st.info("알고리즘을 선택하면 해당 설정을 표시합니다.")
++        _show_stored_check(st.session_state.get(PREFIX + "stored_check"))
+         return
+     if algorithm == GAMMA:
+         st.caption("출력 = 255 × (입력 / 255)^γ · γ < 1 밝게, γ > 1 어둡게, 1은 원본과 같습니다.")
+@@ -127,6 +149,8 @@ def render_gaussian_controls(source: ViewerSource) -> None:
+     algorithm_id = ALGORITHM_IDS[algorithm]
+     if st.button(f"{algorithm} 적용", key=PREFIX + "apply"):
+         _clear_processing()
++        # The notice is about the stored record; a newly applied result replaces it.
++        st.session_state.pop(PREFIX + "stored_check", None)
+         st.session_state[PREFIX + "request"] = {
+             "source_id": source.source_id,
+             "algorithm_id": algorithm_id,
+@@ -139,6 +163,8 @@ def render_gaussian_controls(source: ViewerSource) -> None:
+             f"설정이 변경됐습니다. 현재 표시 결과는 적용 "
+             f"{_describe(applied['algorithm_id'], applied['parameters'])}입니다."
+         )
++    # After the apply button, so a newly applied result removes the stored-record notice at once.
++    _show_stored_check(st.session_state.get(PREFIX + "stored_check"))
+ 
+ 
+ def _run(image: Image.Image, request: dict) -> tuple[Image.Image, str]:
+@@ -179,6 +205,8 @@ def process_gaussian(image: Image.Image) -> Image.Image:
+                 "algorithm_id": request["algorithm_id"],
+                 "algorithm_version": version,
+                 "parameters": dict(request["parameters"]),
++                # Kept per applied result, so it survives an absent or cleared ROI.
++                "environment": processing_environment(request["algorithm_id"]),
+             }
+     if st.session_state.get(PREFIX + "error"):
+         raise ValueError("Image processing failed")
+diff --git a/test_processing_compat_ui.py b/test_processing_compat_ui.py
+new file mode 100644
+index 0000000..b378625
+--- /dev/null
++++ b/test_processing_compat_ui.py
+@@ -0,0 +1,111 @@
++"""P03 screen wiring (A-owned gaussian_ui.py). Delivered by B as a patch for A; needs processing_compat.py from B."""
++
++import json
++import unittest
++
++from PIL import Image
++from streamlit.testing.v1 import AppTest
++
++from case_records import ProcessingRecord
++from gaussian_ui import PREFIX
++from processing_compat import ENVIRONMENT_SCHEMA, library_versions, processing_environment
++from viewer import load_image, sample_image_bytes
++
++
++def environment(**overrides):
++    libraries = {name: version for name, version in library_versions().items()}
++    libraries.update(overrides)
++    return {"schema": ENVIRONMENT_SCHEMA, "libraries": libraries}
++
++
++
++SCRIPT = '''import streamlit as st
++from viewer import render_viewer
++from gaussian_ui import process_gaussian, render_gaussian_controls
++render_viewer(processor=process_gaussian, processing_controls=render_gaussian_controls,
++              stored_source=st.session_state.get('test_stored_source'))
++'''
++
++
++class ProcessingCompatibilityWebTests(unittest.TestCase):
++    def stored_app(self):
++        source = load_image("stored.png", sample_image_bytes())
++        app = AppTest.from_string(SCRIPT, default_timeout=15)
++        app.session_state["test_stored_source"] = source
++        app.run()
++        app.radio(key="viewer_mode").set_value("로컬 저장 영상").run()
++        return app, source
++
++    def restore(self, app, source, algorithm_id, version, parameters, environment=None, via_record=False):
++        restored = {"source_id": source.source_id, "algorithm_id": algorithm_id, "parameters": parameters}
++        if via_record:
++            # C's current restore dict has no version; B reads it from C's stored record.
++            app.session_state["viewer_stored_processing"] = ProcessingRecord(
++                source.source_id, algorithm_id, version, parameters, Image.new("RGB", source.image.size))
++        else:
++            restored["algorithm_version"] = version
++            if environment is not None:
++                restored["environment"] = environment
++        app.session_state["viewer_restore_controls"] = restored
++        app.run()
++
++    def test_applied_result_keeps_environment_without_roi(self):
++        app = AppTest.from_string(SCRIPT, default_timeout=15).run()
++        app.radio(key="viewer_mode").set_value("합성 예시").run()
++        for label, key, value, algorithm_id in (
++            ("가우시안", "radius", 2.0, "gaussian_blur"),
++            ("감마 보정", "gamma", 0.5, "gamma_correction"),
++            ("임계값 분할", "threshold", 128, "threshold_segmentation"),
++        ):
++            with self.subTest(algorithm=label):
++                app.selectbox(key=PREFIX + "algorithm").set_value(label).run()
++                app.number_input(key=PREFIX + key).set_value(value).run()
++                app.button(key=PREFIX + "apply").click().run()
++                applied = app.session_state[PREFIX + "applied"]
++                self.assertNotIn("viewer_roi_bounds", app.session_state)
++                self.assertEqual(applied["environment"], processing_environment(algorithm_id))
++
++    def test_unsupported_version_is_not_restored_and_reason_is_shown(self):
++        for via_record in (False, True):
++            with self.subTest(via_record=via_record):
++                app, source = self.stored_app()
++                self.restore(app, source, "gaussian_blur", "1.0.0", {"radius": 3.0}, via_record=via_record)
++                warning = " ".join(item.value for item in app.warning)
++                self.assertIn("새 설정을 선택하세요", warning)
++                self.assertIn("1.0.0", warning)
++                self.assertIn("2.0.0", warning)
++                self.assertEqual(app.number_input(key=PREFIX + "radius").value, 1.0)
++                self.assertNotIn(PREFIX + "result", app.session_state)
++                self.assertNotIn(PREFIX + "applied", app.session_state)
++
++    def test_supported_record_restores_controls_without_running(self):
++        app, source = self.stored_app()
++        self.restore(app, source, "threshold_segmentation", "1.0.0", {"threshold": 200},
++                     environment=processing_environment("threshold_segmentation"))
++        self.assertEqual(app.selectbox(key=PREFIX + "algorithm").value, "임계값 분할")
++        self.assertEqual(app.number_input(key=PREFIX + "threshold").value, 200)
++        self.assertNotIn(PREFIX + "result", app.session_state)
++        self.assertFalse(app.warning)
++
++    def test_old_record_without_environment_is_labelled(self):
++        app, source = self.stored_app()
++        self.restore(app, source, "gamma_correction", "1.0.0", {"gamma": 0.5})
++        self.assertEqual(app.number_input(key=PREFIX + "gamma").value, 0.5)
++        self.assertTrue(any("환경 정보 없음" in item.value for item in app.caption))
++
++    def test_changed_environment_is_explained_and_cleared_by_new_apply(self):
++        app, source = self.stored_app()
++        self.restore(app, source, "gaussian_blur", "2.0.0", {"radius": 2.0},
++                     environment=environment(opencv="4.11.0"))
++        self.assertEqual(app.number_input(key=PREFIX + "radius").value, 2.0)
++        notice = " ".join(item.value for item in app.info)
++        self.assertIn("재현 조건이 달라졌습니다", notice)
++        self.assertIn("opencv: 저장 당시 4.11.0", notice)
++        app.button(key=PREFIX + "apply").click().run()
++        self.assertNotIn(PREFIX + "stored_check", app.session_state)
++        self.assertFalse(any("재현 조건이 달라졌습니다" in item.value for item in app.info))
++        self.assertIn("environment", app.session_state[PREFIX + "applied"])
++
++
++if __name__ == "__main__":
++    unittest.main()
