@@ -25,6 +25,7 @@ def processing_from_state(source: ViewerSource | None, state) -> ProcessingRecor
             applied["source_id"], applied["algorithm_id"], applied["algorithm_version"],
             deepcopy(applied["parameters"]), result,
             tuple(bounds) if bounds is not None else None, deepcopy(statistics),
+            environment=deepcopy(applied.get("environment")),
         )
     elif record is not None:
         if bounds is not None and tuple(bounds) != tuple(record.roi or ()):
@@ -79,6 +80,7 @@ def freeze_processing(source: ViewerSource, record: ProcessingRecord | None) -> 
         deepcopy(record.parameters), record.result.copy(),
         tuple(record.roi) if record.roi is not None else None,
         deepcopy(record.statistics),
+        environment=deepcopy(record.environment),
     )
 
 

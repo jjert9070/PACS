@@ -31,6 +31,7 @@ class ProcessingRecord:
     result: Image.Image = field(repr=False)
     roi: tuple[int, int, int, int] | None = None
     statistics: dict = field(default_factory=dict)
+    environment: dict | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,13 @@ def _processing_json(processing: ProcessingRecord | None, source: ViewerSource) 
         raise ValueError("처리 결과는 원본과 같은 크기의 RGB 이미지여야 합니다.")
     if not isinstance(processing.parameters, dict) or not isinstance(processing.statistics, dict):
         raise ValueError("처리 설정과 통계 형식이 올바르지 않습니다.")
+    if processing.environment is not None:
+        if not isinstance(processing.environment, dict):
+            raise ValueError("처리 환경 정보는 JSON 객체여야 합니다.")
+        try:
+            json.dumps(processing.environment, allow_nan=False)
+        except (TypeError, ValueError):
+            raise ValueError("처리 환경 정보에는 유한한 JSON 값만 사용할 수 있습니다.") from None
     roi = processing.roi
     if roi is not None:
         if not isinstance(roi, (tuple, list)) or len(roi) != 4 or any(type(value) is not int for value in roi):
@@ -188,6 +196,7 @@ def _processing_json(processing: ProcessingRecord | None, source: ViewerSource) 
         "roi": roi,
         "statistics": processing.statistics,
         "coordinate_space": "exif_transposed_original_pixels_v1",
+        **({"environment": processing.environment} if processing.environment is not None else {}),
     }
 
 
@@ -312,6 +321,7 @@ def reopen_case_processing(root: Path, session: Session, record: CaseRecord) -> 
             processing = ProcessingRecord(
                 source.source_id, metadata["algorithm_id"], metadata["algorithm_version"],
                 metadata["parameters"], result, metadata.get("roi"), metadata.get("statistics", {}),
+                environment=metadata.get("environment"),
             )
         except (KeyError, TypeError):
             raise ValueError("저장된 처리 기록 형식이 올바르지 않습니다.") from None
