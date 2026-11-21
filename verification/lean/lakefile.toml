@@ -1,0 +1,7 @@
+name = "pacs_verification"
+version = "0.1.0"
+defaultTargets = ["pacs_verification"]
+
+[[lean_lib]]
+name = "pacs_verification"
+roots = ["BRules", "CRules", "IntegrationRules", "ARules", "ABCRules", "StateSequences", "GeometryRules", "InputPersistenceRules", "StudyRecoveryRules"]

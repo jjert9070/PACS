@@ -9,7 +9,7 @@ from unittest.mock import patch
 from PIL import Image
 from streamlit.testing.v1 import AppTest
 
-from local_storage import LocalStorageError, list_originals, open_original, save_original
+from local_storage import LocalStorageError, _user_dir, list_originals, open_original, save_original
 from viewer import ViewerInputError, load_image, sample_image_bytes
 
 
@@ -61,11 +61,48 @@ class LocalStorageTests(unittest.TestCase):
         self.assertEqual(list(self.root.iterdir()), [])
 
     def test_failed_publish_leaves_no_partial_original(self):
-        operation = "local_storage.os.rename" if os.name == "nt" else "local_storage.os.link"
-        with patch(operation, side_effect=OSError("disk failure")):
+        with patch("local_storage.os.link", side_effect=OSError("disk failure")):
             with self.assertRaises(LocalStorageError):
                 save_original(self.root, "user-a", "example.png", self.data)
         self.assertEqual(list_originals(self.root, "user-a"), [])
+        self.assertFalse(any(path.is_file() for path in self.root.rglob("*")))
+
+    def test_cleanup_failure_preserves_success_and_logs_no_path(self):
+        with self.assertLogs("local_storage", level="WARNING") as logs:
+            with patch.object(Path, "unlink", side_effect=PermissionError(13, "private cleanup path")):
+                key = save_original(self.root, "user-a", "sample.png", self.data)
+        self.assertEqual(open_original(self.root, "user-a", key).original_bytes, self.data)
+        self.assertIn("original_temp_cleanup_failed errno=13", logs.output[0])
+        self.assertNotIn("private cleanup path", logs.output[0])
+        self.assertNotIn(str(self.root), logs.output[0])
+
+    def test_cleanup_failure_does_not_mask_publish_error(self):
+        with self.assertLogs("local_storage", level="WARNING"):
+            with patch("local_storage.os.link", side_effect=OSError("publish failed")):
+                with patch.object(Path, "unlink", side_effect=PermissionError(13, "cleanup failed")):
+                    with self.assertRaises(LocalStorageError) as caught:
+                        save_original(self.root, "user-a", "sample.png", self.data)
+        self.assertIn("저장", str(caught.exception))
+        self.assertNotIn("cleanup", str(caught.exception))
+        self.assertFalse(list(self.root.rglob("*.png")))
+
+    @unittest.skipUnless(os.name == "nt", "Windows extended path spelling")
+    def test_extended_path_prefix_does_not_reject_a_safe_child(self):
+        resolve = Path.resolve
+        user_name = _user_dir(self.root, "user-a").name
+        def varied_resolve(path, *args, **kwargs):
+            result = resolve(path, *args, **kwargs)
+            if path.name == user_name and not str(result).startswith("\\\\?\\"):
+                return Path("\\\\?\\" + str(result))
+            return result
+        with patch.object(Path, "resolve", varied_resolve):
+            key = save_original(self.root, "user-a", "sample.png", self.data)
+            self.assertEqual(open_original(self.root, "user-a", key).original_bytes, self.data)
+
+    def test_junction_is_rejected_before_any_file_is_written(self):
+        with patch.object(Path, "is_junction", return_value=True):
+            with self.assertRaises(LocalStorageError):
+                save_original(self.root, "user-a", "sample.png", self.data)
         self.assertFalse(any(path.is_file() for path in self.root.rglob("*")))
 
     def test_jpeg_keeps_original_encoding_and_orientation(self):
