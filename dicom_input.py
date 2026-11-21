@@ -140,6 +140,9 @@ class DicomImport:
     stored_pixels: np.ndarray = field(repr=False, compare=False)   # original dtype, read-only
     display_image: Image.Image = field(repr=False, compare=False)  # RGB 8-bit for the viewer
     original_bytes: bytes = field(repr=False, compare=False)
+    # Facts for measurement calibration (#38 B09). Raw tag facts only; whether a physical
+    # unit may be used is decided by measurement_tools.calibration_from_metadata.
+    pixel_geometry: dict | None = field(default=None, repr=False, compare=False)
 
     def provenance(self) -> dict:
         """JSON-ready record of the reading and display conversion (no patient IDs)."""
@@ -383,6 +386,42 @@ def _inspect_dicom(data: bytes):
     return ds, stored_pixels, modality_values, digest_before
 
 
+PIXEL_GEOMETRY_SCHEMA = "b_dicom_pixel_geometry_v1"
+
+
+def _spacing(ds, keyword: str) -> dict:
+    """Read a two-value spacing tag without rejecting the file; malformed values stay visible as invalid."""
+    value = ds[keyword].value if keyword in ds else None
+    if value is None or value == "":
+        return {"status": "absent", "values_mm": None, "raw": None}
+    items = list(value) if isinstance(value, MultiValue) else [value]
+    raw = [str(item) for item in items]
+    try:
+        values = [float(item) for item in items]
+    except (TypeError, ValueError):
+        return {"status": "invalid", "values_mm": None, "raw": raw}
+    if len(values) != 2 or not all(math.isfinite(value) for value in values):
+        return {"status": "invalid", "values_mm": None, "raw": raw}
+    return {"status": "present", "values_mm": values, "raw": raw}
+
+
+def _pixel_geometry(ds, source_id: str) -> dict:
+    """JSON-ready raw facts needed to decide a measurement calibration (no patient identifiers)."""
+    return {
+        "schema": PIXEL_GEOMETRY_SCHEMA,
+        "source_id": source_id,
+        "file_format": "DICOM",
+        "sop_class_uid": str(ds.SOPClassUID),
+        "modality": _text(ds, "Modality", required=False),
+        "frame_count": int(ds.get("NumberOfFrames", 1)),
+        "rows": int(ds.Rows),
+        "columns": int(ds.Columns),
+        "pixel_spacing": _spacing(ds, "PixelSpacing"),
+        "imager_pixel_spacing": _spacing(ds, "ImagerPixelSpacing"),
+        "pixel_spacing_calibration_type": _text(ds, "PixelSpacingCalibrationType", required=False),
+    }
+
+
 def read_dicom(name: str, data: bytes) -> DicomImport:
     """Validate one DICOM file and return its identifiers, stored pixels and display image."""
     ds, stored_pixels, modality_values, source_id = _inspect_dicom(data)
@@ -402,6 +441,7 @@ def read_dicom(name: str, data: bytes) -> DicomImport:
         rescale_slope=_number(ds, "RescaleSlope", 1.0), rescale_intercept=_number(ds, "RescaleIntercept", 0.0),
         display=mapping, stored_pixels=stored_pixels,
         display_image=Image.fromarray(np.stack([display] * 3, axis=-1)), original_bytes=data,
+        pixel_geometry=_pixel_geometry(ds, source_id),
     )
 
 
