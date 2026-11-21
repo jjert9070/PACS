@@ -92,7 +92,8 @@ def save_study_details(
         _request(collection.split("/documents/")[0] + "/documents:commit", session,
                  {"writes": [{"update": {"name": name, "fields": fields}, "currentDocument": condition}]})
     except FirebaseRequestError as error:
-        if error.status not in (403, 409, 412):
+        # Firestore can return 400 for an update-time mismatch; verify the saved version.
+        if error.status not in (400, 403, 409, 412):
             raise
         try:
             existing = get_study_details(project_id, session, details.study_id)

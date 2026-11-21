@@ -6,6 +6,8 @@
 
 ## 현재 ABC의 DICOM 지원
 
+2026년 11월 21일 추가 검증에서 실제 Firebase의 검사 상세 저장 충돌 안내를 보완했다. Windows 전체 시험 349개와 WSL의 348개 통과 및 Windows 전용 1개 건너뜀을 확인했다. 실제 화면의 입력 보존과 보기 조작, 로그아웃 정리와 실제 Firebase를 사용하는 두 독립 AppTest 세션의 충돌도 검증했다. [최신 검증 범위와 남은 항목](docs/patient-study-ui.md#2026-11-21-실제-화면-검증과-검사-상세-저장-충돌-수정)을 함께 확인한다.
+
 `intergrationABC`에서는 단일 프레임 흑백 DICOM의 비압축 Little Endian, JPEG 2000 Lossless, JPEG 2000과 RLE Lossless를 지원한다. JPEG Baseline과 JPEG-LS, 컬러 및 다중 프레임은 아직 지원하지 않는다. 파일은 20MB 이하이며 압축 원본의 바이트와 해시를 그대로 보관한다. JPEG 2000 `.91`은 손실 압축을 포함하므로 무손실로 간주하지 않는다.
 
 의존성은 `uv sync --locked`로 설치하고 실행 중인 Streamlit은 재시작한다. [지원 조건과 검사 방법](docs/image-processing/dicom-input.md), [ABC 화면과 검증 기록](docs/patient-study-ui.md)을 참고한다. 발급 주체가 없는 입력은 정상 등록을 차단하며 자동 기본값이나 이름으로 환자를 연결하지 않는다.
